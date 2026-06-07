@@ -5,14 +5,13 @@
   channel = "stable-24.11"; # or "unstable"
   # Use https://search.nixos.org/packages to find packages
   packages = [
-    # pkgs.go
-    # pkgs.python311
-    # pkgs.python311Packages.pip
-    # pkgs.nodejs_22
-    # pkgs.nodePackages.nodemon
+  pkgs.python312
+  pkgs.python312Packages.pip
   ];
   # Sets environment variables in the workspace
-  env = {};
+  env = {
+    GEMINI_API_KEY = "AIzaSyDGSFXCM4DHuLAnGjVE59deUiKfccuhhxc";
+  };
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [
@@ -21,20 +20,27 @@
     ];
     # Enable previews
     previews = {
-      enable = true;
-      previews = {
-        # web = {
-        #   # Example: run "npm run dev" with PORT set to IDX's defined port for previews,
-        #   # and show it in IDX's web preview panel
-        #   command = ["npm" "run" "dev"];
-        #   manager = "web";
-        #   env = {
-        #     # Environment variables to set for your server
-        #     PORT = "$PORT";
-        #   };
-        # };
-      };
+  enable = true;
+  previews = {
+    web = {
+      command = [
+        "./.venv/bin/python"
+  "-m"
+  "streamlit"
+  "run"
+  "app.py"
+  "--server.port"
+  "$PORT"
+  "--server.address"
+  "0.0.0.0"
+  "--server.enableCORS"
+  "false"
+      ];
+      manager = "web";
     };
+  };
+};
+
     # Workspace lifecycle hooks
     workspace = {
       # Runs when a workspace is first created
