@@ -23,7 +23,7 @@ api_key = st.text_input("Gemini APIキー", type="password")
 if api_key:
                         genai.configure(api_key=api_key)
 
-GEMINI_API_KEY = "AIzaSyCKevtj9WeWxyGK2t-f9iVM_uUmzWsO688"
+
 
 def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> str:
     system_instruction = """
