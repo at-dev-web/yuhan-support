@@ -9,9 +9,7 @@
   pkgs.python312Packages.pip
   ];
   # Sets environment variables in the workspace
-  env = {
-    GEMINI_API_KEY = "AIzaSyDGSFXCM4DHuLAnGjVE59deUiKfccuhhxc";
-  };
+  
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [
