@@ -4,249 +4,214 @@ import json
 import os
 from typing import Optional, Dict, Any
 
-st.set_page_config(page_title="平日夜ごはんサポート", page_icon="🍳")
+# ページ設定
+st.set_page_config(page_title="夜ごはんサポート", page_icon="🍳")
+
+# --- セキュリティ設定：Streamlit CloudのSecrets（環境変数）から読み込む ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 def init_session_state():
     if "latest_result" not in st.session_state:
         st.session_state.latest_result = None
     if "last_inputs" not in st.session_state:
         st.session_state.last_inputs = None
-    if "retry_type" not in st.session_state:
-        st.session_state.retry_type = None
     if "user_feedback" not in st.session_state:
         st.session_state.user_feedback = None
 
-with st.sidebar:
-        st.markdown("### 🔑 API設定")
-        
-api_key = st.text_input("Gemini APIキー", type="password")
-if api_key:
-                        genai.configure(api_key=api_key)
-
-
-
 def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> str:
     system_instruction = """
-    あなたは忙しい平日夜の保護者を助ける献立アドバイザーです。
-    ユーザーの入力条件に基づき、現実的で美味しい夕食の提案を1つだけ行ってください。
-    必ず以下のJSON形式でのみ回答してください。他の文章は一切含めないでください。
+あなたは「ポチコ」という名前の、忙しい夜ごはんをやさしくサポートする献立アドバイザーです。
+ユーザーの入力条件に基づき、現実的で作りやすく、おいしい夕食候補を3品提案してください。
+
+【重要：言葉遣いと配慮のルール】
+- 「子ども」という表現は使わず、必ず「お子さん」と呼んでください。
+- 命令調や不躾な表現は避け、やさしく寄り添う自然な言い回しにしてください。
+- 提案理由やポイントは、忙しい保護者に寄り添う内容にしてください。
+
+【アイテム提案のルール】
+- 提案した料理に関連して「あると便利なアイテム」を1つ紹介してください。
+- 食材や調味料は提案しないでください。
+
+必ず以下のJSON形式でのみ回答してください。
+{
+  "meal_title": "今夜のおすすめ候補",
+  "summary": "今回の3候補の全体説明",
+  "candidates": [
     {
       "menu_name": "料理名",
-      "reason": "提案理由（1〜2文）",
+      "dish_type": "主菜または副菜",
+      "reason": "提案理由",
       "ingredients": ["材料1", "材料2"],
       "steps": ["手順1", "手順2"],
-      "tip": "失敗しにくくするポイント",
-      "ad_suggestion": {
-        "title": "おすすめ調理器具や食材",
-        "reason": "なぜおすすめか",
-        "url": ""
-      }
+      "tip": "お子さん想いのポイント"
     }
-    """
-    retry_context = ""
-    if retry_type == "もっと楽なの":
-        retry_context = "\n【再提案条件】工程をさらに減らし、洗い物が極限まで少ない超時短案にしてください。"
-    elif retry_type == "家にそれ無い":
-        retry_context = "\n【再提案条件】材料を代替しやすいものにするか、品数を減らしてください。"
-    elif retry_type == "子ども無理そう":
-        retry_context = "\n【再提案条件】味付けをよりマイルドにし、子どもが喜ぶ要素を強めてください。"
-    elif retry_type == "気分じゃない":
-        retry_context = "\n【再提案条件】先ほどの提案とは味の方向性（和洋中など）をガラッと変えてください。"
-    
-    prompt = f"""
-    今夜の献立を1案提案してください。{retry_context}
-    - 使いたい食材: {inputs['ingredients']}
-    - 調理時間: {inputs['cook_time']}
-    - 気分: {inputs['mood']}
-    - 子どもの配慮: {inputs['kid_friendly']}
-    - 補足: {inputs['constraints'] if inputs['constraints'] else "特になし"}
-    """
-    return system_instruction + "\n" + prompt
-def call_ai(prompt: str) -> Optional[str]:
-    if not api_key:
-        st.error("上部の APIキー入力欄に Gemini APIキー を入力してください。")
-        return None
+  ],
+  "ad_suggestion": {
+    "title": "アイテム名",
+    "reason": "おすすめの理由"
+  }
+}
+"""
 
+    retry_context = ""
+    if retry_type == "もっと手抜きがいい":
+        retry_context = "\n【再提案条件】工程を極限まで削った、より手軽で作りやすい案にしてください。"
+    elif retry_type == "ちがう味付けがいい":
+        retry_context = "\n【再提案条件】味の方向性をガラッと変えてください。"
+    elif retry_type == "調理法を変えたい":
+        retry_context = "\n【再提案条件】火の通し方を先ほどとは違うものにしてください。"
+    elif retry_type == "完全に別の案にする":
+        retry_context = "\n【再提案条件】まったく新しい3品を提案してください。"
+
+    conditions_text = "、".join(inputs["conditions"]) if inputs["conditions"] else "なし"
+    spicy_rule = "辛い料理は提案しないでください。"
+    if inputs["spicy"]:
+        spicy_rule = "辛い料理も提案可能です。"
+
+    prompt = f"""
+今夜の献立候補を3品提案してください。{retry_context}
+- 使いたい食材: {inputs['ingredients']}
+- 入れないもの: {inputs['exclude_ingredients'] if inputs['exclude_ingredients'] else "特になし"}
+- かけられる時間: {inputs['cook_time']}
+- 作りたいもの: {inputs['dish_type']}
+- 条件: {conditions_text}
+- 味の濃さ: {inputs['taste_level']}
+- 補足: {inputs['constraints'] if inputs['constraints'] else "特になし"}
+- 辛さルール: {spicy_rule}
+"""
+    return system_instruction + "\n" + prompt
+
+def call_ai(prompt: str) -> Optional[str]:
+    if not GEMINI_API_KEY:
+        st.error("システム設定エラー：APIキーが読み込めません。")
+        return None
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(prompt)
-
         if response and hasattr(response, "text") and response.text:
             return response.text
-
-        st.error("提案を取得できませんでした。")
         return None
-
-    except Exception as e:
-        st.error("Gemini 呼び出しでエラーが出ました。")
-        st.exception(e)
+    except Exception:
+        st.error("通信エラーが発生しました。しばらくしてからもう一度お試しください。")
         return None
 
 def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
-    if not response_text:
-        return None
+    if not response_text: return None
     try:
         start = response_text.find("{")
         end = response_text.rfind("}") + 1
-        if start == -1 or end == 0:
-            return None
-        json_text = response_text[start:end]
-        return json.loads(json_text)
-    except Exception:
-        return None
+        return json.loads(response_text[start:end])
+    except: return None
+
 def run_retry(retry_label: str):
     if not st.session_state.last_inputs:
-        st.warning("先に最初の献立提案を出してください。")
+        st.warning("先に提案を出してください。")
         return
-
-    with st.spinner(f"了解です。「{retry_label}」で出し直します..."):
+    with st.spinner("別の候補を考えています..."):
         retry_prompt = build_prompt(st.session_state.last_inputs, retry_label)
         response = call_ai(retry_prompt)
-
         if response:
             result = parse_ai_response(response)
             if result:
                 st.session_state.latest_result = result
                 st.session_state.user_feedback = None
                 st.rerun()
-            else:
-                st.error("提案の読み取りに失敗しました。")       
-def save_feedback(feedback: str, menu_name: str):
-    print(f"Feedback: {feedback} for {menu_name}")
+
+def render_candidate_card(candidate: Dict[str, Any], idx: int):
+    with st.container(border=True):
+        st.markdown(f"### {idx}. {candidate.get('menu_name', '')}")
+        st.write(f"**おすすめ理由**：{candidate.get('reason', '')}")
+        with st.expander("🍳 材料と作り方を見る"):
+            st.markdown("**🛒 材料**")
+            for item in candidate.get("ingredients", []): st.write(f"- {item}")
+            st.markdown("**👩‍🍳 作り方の手順**")
+            for i, step in enumerate(candidate.get("steps", []), 1): st.write(f"{i}. {step}")
+        st.info(f"✨ お子さん想いのポイント：{candidate.get('tip', '')}")
 
 def render_result(result: Dict[str, Any]):
-    menu_name = result.get("menu_name", "提案メニュー")
-    reason = result.get("reason", "条件に合う献立として提案しました。")
-    tip = result.get("tip", "無理なく作れるものから試してみてください。")
-    ingredients = result.get("ingredients", [])
-    if not isinstance(ingredients, list):
-        ingredients = [str(ingredients)]
-    steps = result.get("steps", [])
-    if not isinstance(steps, list):
-        steps = [str(steps)]
-    
-    st.success(f"### 今夜はこれ！： {menu_name}")
-    st.write(f"**💡 理由:** {reason}")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.write("**🛒 材料**")
-        for item in ingredients:
-            st.write(f"- {item}")
-    with c2:
-        st.write("**🍳 作り方**")
-        for i, step in enumerate(steps, 1):
-            st.write(f"{i}. {step}")
-    st.info(f"**✨ ポイント:** {tip}")
-    
+    st.success(f"### {result.get('meal_title', '今夜のおすすめ候補')}")
+    st.write(result.get("summary", ""))
+    for idx, candidate in enumerate(result.get("candidates", [])[:3], start=1):
+        render_candidate_card(candidate, idx)
     ad = result.get("ad_suggestion")
     if isinstance(ad, dict) and ad.get("title"):
-        with st.expander("🛠 あると便利なもの (PR含む)"):
-            st.write(f"**{ad.get('title', '')}**")
+        st.write("---")
+        st.subheader("🛠 この献立に役立つアイテム (PR)")
+        with st.container(border=True):
+            st.markdown(f"#### {ad.get('title', '')}")
             st.write(ad.get("reason", ""))
+
 def main():
     init_session_state()
-
-    st.title("🍳 平日夜ごはんサポート")
-    st.write("考えるのがしんどい時、ポチポチ選ぶだけで「今夜これにしよう」をお届けします。")
+    st.title("🍳 夜ごはんサポート")
+    st.write("ポチポチ選ぶだけ。今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
     with st.form("main_form"):
-        ingredients = st.text_input("使いたい食材・残っているもの *", placeholder="例：大根、ひき肉、豆腐")
+        ingredients = st.text_input("使いたい食材・家にあるもの *", placeholder="例：大根、ひき肉、豆腐")
+        exclude_ingredients = st.text_input("入れないもの（苦手なもの）", placeholder="例：ピーマン、トマト")
         col1, col2 = st.columns(2)
+        with col1: cook_time = st.radio("かけられる時間 *", ["5分", "10分", "15分", "20分"], index=1)
+        with col2: dish_type = st.radio("何を作りたいですか *", ["主菜", "副菜", "どちらでも"], index=0)
+        
+        st.write("**条件（あてはまるものを選んでください）**")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            cond_one_pan = st.checkbox("ワンパンでできる")
+            cond_less_wash = st.checkbox("洗い物少なめ")
+        with c2:
+            cond_less_ingredients = st.checkbox("使う材料少なめ")
+            cond_kid = st.checkbox("幼児向き")
+        with c3:
+            cond_party = st.checkbox("パーティー・おもてなし向き")
+            cond_with_kids = st.checkbox("子どもと一緒に作れる")
 
-        with col1:
-            cook_time = st.radio("作りたい時間 *", ["5分", "10分", "15分", "20分"], index=1)
-
-        with col2:
-            mood = st.radio("今の気分 *", ["がっつり", "ヘルシーな", "あっさり", "あたたかい"])
-
-        kid_friendly = st.select_slider(
-            "こどもの食べやすさ *",
-            options=["食べやすさ優先", "普通", "大人寄りでもOK"],
-            value="普通"
-        )
-
-        constraints = st.text_input("避けたいこと・補足（任意）", placeholder="例：洗い物少なめ")
-        submit = st.form_submit_button("AIに聞く")
+        conditions = [l for l, c in zip(["ワンパンでできる", "洗い物少なめ", "使う材料少なめ", "幼児向き", "パーティー・おもてなし向き", "子どもと一緒に作れる"], [cond_one_pan, cond_less_wash, cond_less_ingredients, cond_kid, cond_party, cond_with_kids]) if c]
+        taste_level = st.radio("味の濃さ *", ["薄味", "普通", "濃い目"], index=1, horizontal=True)
+        spicy = st.toggle("辛い料理もOK", value=False)
+        constraints = st.text_input("補足（任意）", placeholder="例：ちくわも消費したい")
+        submit = st.form_submit_button("この条件でAIに聞く")
 
     if submit:
-        if not ingredients.strip():
-            st.warning("使いたい食材を入力してください。")
+        if not ingredients.strip(): st.warning("使いたい食材を入力してください。")
         else:
-            st.session_state.latest_result = None
-            st.session_state.user_feedback = None
-            st.session_state.last_inputs = {
-                "ingredients": ingredients,
-                "cook_time": cook_time,
-                "mood": mood,
-                "kid_friendly": kid_friendly,
-                "constraints": constraints,
-            }
-
-            with st.spinner("今夜のベストな1案を考えています..."):
-                prompt = build_prompt(st.session_state.last_inputs)
-                response = call_ai(prompt)
-
-                if response:
-                    result = parse_ai_response(response)
-                    if result:
-                        st.session_state.latest_result = result
-                    else:
-                        st.error("提案の読み取りに失敗しました。もう一度お試しください。")
+            st.session_state.last_inputs = {"ingredients": ingredients, "exclude_ingredients": exclude_ingredients, "cook_time": cook_time, "dish_type": dish_type, "conditions": conditions, "taste_level": taste_level, "spicy": spicy, "constraints": constraints}
+            with st.spinner("今夜の候補を考えています..."):
+                resp = call_ai(build_prompt(st.session_state.last_inputs))
+                if resp: st.session_state.latest_result = parse_ai_response(resp)
 
     if st.session_state.latest_result:
         render_result(st.session_state.latest_result)
-
         st.write("---")
-        st.write("イメージと違いましたか？")
-
+        st.write("イメージと違ったら、近いものを選んでください。")
         c1, c2, c3, c4 = st.columns(4)
-
         with c1:
-            if st.button("もっと楽なの", key="retry_easy"):
-                run_retry("もっと楽なの")
-
+            if st.button("もっと手抜きがいい"): run_retry("もっと手抜きがいい")
         with c2:
-            if st.button("家にそれはない", key="retry_missing"):
-                run_retry("家にそれはない")
-
+            if st.button("ちがう味付けがいい"): run_retry("ちがう味付けがいい")
         with c3:
-            if st.button("無理そう", key="retry_kid"):
-                run_retry("無理そう")
-
+            if st.button("調理法を変えたい"): run_retry("調理法を変えたい")
         with c4:
-            if st.button("気分じゃない", key="retry_mood"):
-                run_retry("気分じゃない")
-
-        st.write("---")
-        menu_name = st.session_state.latest_result.get("menu_name", "")
-
+            if st.button("完全に別の案にする"): run_retry("完全に別の案にする")
+        
         if st.session_state.user_feedback is None:
             f1, f2, f3 = st.columns(3)
-
             with f1:
-                if st.button("👍 役立った", key="feedback_good"):
+                if st.button("👍 役に立った"):
                     st.session_state.user_feedback = "Good"
-                    save_feedback("Good", menu_name)
                     st.toast("ありがとうございます！")
-
             with f2:
-                if st.button("🤔 微妙", key="feedback_normal"):
+                if st.button("🤔 もう少し"):
                     st.session_state.user_feedback = "Normal"
-                    save_feedback("Normal", menu_name)
-                    st.toast("改善します")
-
+                    st.toast("次に活かします。")
             with f3:
-                if st.button("👋 使わない", key="feedback_bad"):
+                if st.button("👋 今回は使わない"):
                     st.session_state.user_feedback = "Bad"
-                    save_feedback("Bad", menu_name)
-                    st.toast("次は頑張ります")
-        else:
-            feedback_label_map = {
-                "Good": "👍 役立った",
-                "Normal": "🤔 微妙",
-                "Bad": "👋 使わない",
-            }
-            st.caption(f"評価ありがとうございます：{feedback_label_map.get(st.session_state.user_feedback, '')}")
+                    st.toast("ご意見ありがとうございます。")
+
+    st.write("---")
+    st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
 
 if __name__ == "__main__":
     main()
