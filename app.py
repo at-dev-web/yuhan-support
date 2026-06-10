@@ -8,6 +8,31 @@ from typing import Optional, Dict, Any
 # ページ設定
 st.set_page_config(page_title="夜ごはんサポート", page_icon="🍳")
 
+# --- 見た目の微調整（CSS） ---
+st.markdown(
+    """
+    <style>
+    /* 「Press Enter to submit form」という英文を非表示にする */
+    div[data-testid="stTextInput"] div[data-testid="stMarkdownContainer"] p {
+        display: none;
+    }
+    
+    /* 入力欄の下に出る余計なキャプションや指示を隠す */
+    .st-emotion-cache-1ae8p94, .st-emotion-cache-16297re {
+        display: none !important;
+    }
+
+    /* タイトルのフォントサイズ微調整（スマホ最適化） */
+    h1 {
+        font-size: clamp(1.6rem, 5vw, 2.5rem) !important;
+        line-height: 1.2 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
 # --- セキュリティ設定 ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
