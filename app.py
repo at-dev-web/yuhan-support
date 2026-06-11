@@ -8,35 +8,29 @@ from typing import Optional, Dict, Any
 # ページ設定
 st.set_page_config(page_title="夜ごはんサポート", page_icon="🍳")
 
-# --- 見た目の微調整（CSS） ---
-st.markdown(
-    """
-    <style>
-    /* 「Press Enter to submit form」という英文を非表示にする */
-    div[data-testid="stTextInput"] div[data-testid="stMarkdownContainer"] p {
-        display: none;
-    }
-    
-    /* 入力欄の下に出る余計なキャプションや指示を隠す */
-    .st-emotion-cache-1ae8p94, .st-emotion-cache-16297re {
-        display: none !important;
-    }
-
-    /* タイトルのフォントサイズ微調整（スマホ最適化） */
-    h1 {
-        font-size: clamp(1.6rem, 5vw, 2.5rem) !important;
-        line-height: 1.2 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
 # --- セキュリティ設定 ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+
+# --- CSSで見た目を一気に調整 ---
+st.markdown(
+    """
+    <style>
+    /* 1. 「Press Enter to submit form」を強制非表示 (最強設定) */
+    small { display: none !important; }
+    div[data-testid="stMarkdownContainer"] p { font-size: 1rem; }
+    
+    /* 2. スマホでタイトルや料理名が2行にならないようサイズ調整 */
+    h1 { font-size: clamp(1.5rem, 5vw, 2.2rem) !important; line-height: 1.2 !important; }
+    h3 { font-size: clamp(1.2rem, 4vw, 1.8rem) !important; line-height: 1.2 !important; }
+    
+    /* 3. 成功メッセージ内のタイトルも小さく */
+    .stSuccess h3 { font-size: 1.1rem !important; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 def init_session_state():
     if "latest_result" not in st.session_state:
@@ -48,23 +42,14 @@ def init_session_state():
 
 def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> str:
     system_instruction = """
-あなたは「ポチコ」という名前の、忙しい夜ごはんをやさしくサポートする献立アドバイザーです。
-ユーザーの入力条件に基づき、現実的で作りやすく、おいしい夕食候補を3品提案してください。
+あなたは「ポチコ」という名前の献立アドバイザーです。
+現実的で作りやすく、おいしい夕食候補を3品提案してください。
+「お子さん」という言葉を使い、やさしく寄り添うトーンで。
 
-【重要：言葉遣いと配慮のルール】
-- 「子ども」という表現は使わず、必ず「お子さん」と呼んでください。
-- 命令調や不躾な表現は避け、やさしく寄り添う自然な言い回しにしてください。
-- 提案理由やポイントは、忙しい保護者に寄り添う内容にしてください。
-
-【アイテム提案のルール】
-- 提案した料理に関連して「ポチコが自信を持っておすすめする便利アイテム」を1つ紹介してください。
-- 食材や調味料は提案しないでください（今日届かないため）。
-- ジャンル：時短グッズ、食器、装飾、お子さん用エプロン等。
-
-必ず以下のJSON形式でのみ回答してください。
+必ず以下のJSON形式でのみ回答してください：
 {
   "meal_title": "ポチコのおすすめ候補",
-  "summary": "今回の3候補の全体説明（やさしい言葉遣いで）",
+  "summary": "今回の3候補の全体説明",
   "candidates": [
     {
       "menu_name": "料理名",
@@ -75,50 +60,36 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
       "tip": "ポチコの推しポイント"
     }
   ],
-  "ad_suggestion": {
-    "title": "アイテム名",
-    "reason": "なぜこれが今夜の献立に役立つのか（具体的におすすめする理由）"
-  }
+  "ad_suggestion": {"title": "アイテム名", "reason": "おすすめ理由"}
 }
 """
     retry_context = ""
-    if retry_type == "もっと手抜きがいい":
-        retry_context = "\n【再提案条件】工程を極限まで削った超時短案にしてください。"
-    elif retry_type == "ちがう味付けがいい":
-        retry_context = "\n【再提案条件】味の方向性をガラッと変えてください。"
-    elif retry_type == "調理法を変えたい":
-        retry_context = "\n【再提案条件】火の通し方を先ほどとは全く違う方法にしてください。"
-    elif retry_type == "完全に別の案にする":
-        retry_context = "\n【再提案条件】全く新しい3品をゼロから提案し直してください。"
+    if retry_type:
+        retry_context = f"\n【再提案条件】{retry_type}を重視して、内容をガラッと変えてください。"
 
     conditions_text = "、".join(inputs["conditions"]) if inputs["conditions"] else "なし"
-    spicy_rule = "辛い料理は提案しないでください。"
-    if inputs["spicy"]:
-        spicy_rule = "辛い料理も提案可能です。"
+    spicy_rule = "辛い料理も提案可能です。" if inputs["spicy"] else "辛い料理は提案しないでください。"
 
     prompt = f"""
-今夜の献立候補を3品提案してください。{retry_context}
+今夜の献立を3品提案して。{retry_context}
 - 使いたい食材: {inputs['ingredients']}
-- 入れないもの: {inputs['exclude_ingredients'] or '特になし'}
-- かけられる時間: {inputs['cook_time']}
-- 作りたいもの: {inputs['dish_type']}
+- 苦手なもの: {inputs['exclude_ingredients']}
+- 時間: {inputs['cook_time']}
+- 種類: {inputs['dish_type']}
 - 条件: {conditions_text}
-- 味の濃さ: {inputs['taste_level']}
-- 補足: {inputs['constraints'] or '特になし'}
-- 辛さルール: {spicy_rule}
+- 味: {inputs['taste_level']}
+- 補足: {inputs['constraints']}
+- 辛さ: {spicy_rule}
 """
     return system_instruction + "\n" + prompt
 
 def call_ai(prompt: str) -> Optional[str]:
-    if not GEMINI_API_KEY:
-        st.error("システム設定エラー：APIキーが読み込めません。")
-        return None
+    if not GEMINI_API_KEY: return None
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(prompt)
         return response.text if hasattr(response, "text") else None
-    except Exception:
-        return None
+    except: return None
 
 def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
     if not response_text: return None
@@ -126,11 +97,11 @@ def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
         start = response_text.find("{")
         end = response_text.rfind("}") + 1
         return json.loads(response_text[start:end])
-    except Exception: return None
+    except: return None
 
 def run_retry(retry_label: str):
     if not st.session_state.last_inputs: return
-    with st.spinner(f"「{retry_label}」で考え直しています..."):
+    with st.spinner(f"「{retry_label}」で考え直しています（30秒ほどかかる場合があります）..."):
         response = call_ai(build_prompt(st.session_state.last_inputs, retry_label))
         if response:
             result = parse_ai_response(response)
@@ -147,7 +118,6 @@ def render_candidate_card(candidate: Dict[str, Any], idx: int):
         with st.expander("🍳 材料と作り方を見る"):
             st.markdown("**🛒 材料**")
             for item in candidate.get("ingredients", []): st.write(f"- {item}")
-            st.write("")
             st.markdown("**👩‍🍳 作り方の手順**")
             for i, step in enumerate(candidate.get("steps", []), 1): st.write(f"{i}. {step}")
         st.info(f"✨ ポチコの推しポイント：{candidate.get('tip', '')}")
@@ -161,69 +131,68 @@ def render_result(result: Dict[str, Any]):
     ad = result.get("ad_suggestion")
     if isinstance(ad, dict) and ad.get("title"):
         st.write("---")
-        st.subheader("🛠 ポチコが見つけたお役立ちアイテム")
+        st.subheader("🛠 ポチコのお役立ちアイテム")
         item_name = ad.get("title", "")
         query = quote_plus(item_name)
         with st.container(border=True):
             st.markdown(f"#### {item_name}")
             st.write(ad.get("reason", ""))
-            st.caption("※ポチコおすすめの商品ページ（外部サイト）へ移動します。")
+            st.caption("※ポチコおすすめの商品ページ（外部サイト）へ移動します。移動前にレシピのスクショをおすすめします。")
             c1, c2 = st.columns(2)
-            with c1:
-                st.link_button("Amazonでチェック", f"https://www.amazon.co.jp/s?k={query}", use_container_width=True)
-            with c2:
-                st.link_button("楽天でチェック", f"https://search.rakuten.co.jp/search/mall/{query}/", use_container_width=True)
+            with c1: st.link_button("Amazonでチェック", f"https://www.amazon.co.jp/s?k={query}", use_container_width=True)
+            with c2: st.link_button("楽天でチェック", f"https://search.rakuten.co.jp/search/mall/{query}/", use_container_width=True)
 
 def main():
     init_session_state()
+    st.title("🍳 夜ごはんサポート")
+    st.write("今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
-    # タイトルのレスポンシブ調整
-    st.markdown(
-        """
-        <h1 style='font-size: clamp(1.8rem, 5vw, 2.5rem); line-height: 1.2; margin-bottom: 0.5rem;'>
-        🍳 夜ごはんサポート
-        </h1>
-        """, 
-        unsafe_allow_html=True
-    )
-    st.write("ポチポチ選ぶだけ。今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
+    # 1. 使いたい食材 (旧形式に戻す)
+    ingredients = st.text_input("使いたい食材・家にあるもの *", placeholder="例：大根、ひき肉、豆腐")
+    
+    # 2. 苦手なもの
+    exclude_ingredients = st.text_input("入れないもの（苦手なもの）", placeholder="例：ピーマン、トマト")
+    
+    col1, col2 = st.columns(2)
+    with col1: cook_time = st.radio("かけられる時間 *", ["5分", "10分", "15分", "20分"], index=1)
+    with col2: dish_type = st.radio("何を作りたいですか *", ["主菜", "副菜", "どちらでも"], index=0)
 
-    with st.form("main_form", clear_on_submit=False):
-        ingredients = st.text_input("使いたい食材・家にあるもの *", placeholder="例：大根、ひき肉、豆腐")
-        exclude_ingredients = st.text_input("入れないもの（苦手なもの）", placeholder="例：ピーマン、トマト")
-        
-        col1, col2 = st.columns(2)
-        with col1: cook_time = st.radio("かけられる時間 *", ["5分", "10分", "15分", "20分"], index=1)
-        with col2: dish_type = st.radio("何を作りたいですか *", ["主菜", "副菜", "どちらでも"], index=0)
+    st.write("**条件（あてはまるものを選んでください）**")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        cond_less_ingredients = st.checkbox("この材料だけで作る") # 位置変更・名前変更
+        cond_one_pan = st.checkbox("ワンパンでできる")
+    with c2:
+        cond_less_wash = st.checkbox("洗い物少なめ")
+        cond_kid = st.checkbox("幼児向き")
+    with c3:
+        cond_party = st.checkbox("パーティー・おもてなし向き")
+        cond_with_kids = st.checkbox("子どもと一緒に作れる")
 
-        st.write("**条件（あてはまるものを選んでください）**")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            cond1 = st.checkbox("ワンパンでできる")
-            cond2 = st.checkbox("洗い物少なめ")
-        with c2:
-            cond3 = st.checkbox("使う材料少なめ")
-            cond4 = st.checkbox("幼児向き")
-        with c3:
-            cond5 = st.checkbox("パーティー・おもてなし向き")
-            cond6 = st.checkbox("子どもと一緒に作れる")
+    conditions = [l for l, c in zip(["この材料だけで作る", "ワンパンでできる", "洗い物少なめ", "幼児向き", "パーティー・おもてなし向き", "子どもと一緒に作れる"], [cond_less_ingredients, cond_one_pan, cond_less_wash, cond_kid, cond_party, cond_with_kids]) if c]
+    taste_level = st.radio("味の濃さ *", ["薄味", "普通", "濃い目"], index=1, horizontal=True)
+    spicy = st.toggle("辛い料理もOK", value=False)
+    
+    # 3. 自由記述 (旧形式に戻す)
+    constraints = st.text_input("補足（任意）", placeholder="例：ちくわも消費したい")
 
-        conditions = [l for l, c in zip(["ワンパンでできる", "洗い物少なめ", "使う材料少なめ", "幼児向き", "パーティー・おもてなし向き", "子どもと一緒に作れる"], [cond1, cond2, cond3, cond4, cond5, cond6]) if c]
-        taste_level = st.radio("味の濃さ *", ["薄味", "普通", "濃い目"], index=1, horizontal=True)
-        spicy = st.toggle("辛い料理もOK", value=False)
-        
-        # 自由記述欄（Press Enter...を意識させないよう、ラベルで補足）
-        constraints = st.text_input("補足（任意：最後は下のボタンで送信してください）", placeholder="例：ちくわも消費したい、マヨネーズが残り少ない")
-
-        submit = st.form_submit_button("この条件でポチコに聞く")
-
-    if submit:
-        if not ingredients.strip(): st.warning("使いたい食材を入力してください。")
+    # フォームを使わず直接ボタンを置くことで「Press Enter...」を消す
+    if st.button("この条件でポチコに聞く", type="primary", use_container_width=True):
+        if not ingredients.strip():
+            st.warning("使いたい食材を入力してください。")
         else:
-            st.session_state.last_inputs = {"ingredients": ingredients, "exclude_ingredients": exclude_ingredients, "cook_time": cook_time, "dish_type": dish_type, "conditions": conditions, "taste_level": taste_level, "spicy": spicy, "constraints": constraints}
-            with st.spinner("ポチコが今夜の候補を考えています..."):
+            st.session_state.latest_result = None
+            st.session_state.user_feedback = None
+            st.session_state.last_inputs = {
+                "ingredients": ingredients, "exclude_ingredients": exclude_ingredients,
+                "cook_time": cook_time, "dish_type": dish_type,
+                "conditions": conditions, "taste_level": taste_level,
+                "spicy": spicy, "constraints": constraints
+            }
+            with st.spinner("ポチコが今夜の候補を考えています（30秒ほどかかる場合があります）..."):
                 resp = call_ai(build_prompt(st.session_state.last_inputs))
                 if resp: st.session_state.latest_result = parse_ai_response(resp)
+                else: st.error("通信エラーが発生しました。")
 
     if st.session_state.latest_result:
         render_result(st.session_state.latest_result)
@@ -239,11 +208,27 @@ def main():
         with c4:
             if st.button("完全に別の案にする"): run_retry("完全に別の案にする")
 
+        st.write("---")
+        # 感想マークの再表示
+        if st.session_state.user_feedback is None:
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                if st.button("👍 役に立った"):
+                    st.session_state.user_feedback = "Good"
+                    st.toast("ありがとうございます！")
+            with f2:
+                if st.button("🤔 もう少し"):
+                    st.session_state.user_feedback = "Normal"
+                    st.toast("次に活かします。")
+            with f3:
+                if st.button("👋 今回は使わない"):
+                    st.session_state.user_feedback = "Bad"
+                    st.toast("ご意見ありがとうございます。")
+        else: st.caption("評価ありがとうございます！")
+
     st.write("---")
-    # 公開版への注釈
-    st.caption("※無料公開環境の仕様により、画面上部に外部サービス（GitHub等）のアイコンが表示されますが、そのまま安心してご利用いただけます。")
-    st.caption("【免責事項】")
-    st.caption("・本アプリはAIによる自動生成案を表示しています。アレルギーや月齢に合わせた判断は、必ず保護者の方が最終確認を行ってください。")
+    st.caption("※無料公開環境の仕様により、画面上部に外部サービスのアイコンが表示されますが、そのまま安心してご利用いただけます。")
+    st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
 
 if __name__ == "__main__":
     main()
