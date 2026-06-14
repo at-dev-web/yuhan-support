@@ -17,7 +17,7 @@ if GEMINI_API_KEY:
 st.markdown(
     """
     <style>
-    /* 1. 「Press Enter to submit form」を強制非表示 (最強設定) */
+    /* 1. 「Press Enter to submit form」を強制非表示 */
     small { display: none !important; }
     div[data-testid="stMarkdownContainer"] p { font-size: 1rem; }
     
@@ -55,13 +55,17 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
       "menu_name": "料理名",
       "dish_type": "主菜または副菜",
       "reason": "提案理由",
-      "ingredients": ["材料1"],
-      "steps": ["手順1"],
+      "ingredients": ["ひき肉 200g", "大根 1/4本"],
+      "steps": ["手順1", "手順2"],
       "tip": "ポチコの推しポイント"
     }
   ],
   "ad_suggestion": {"title": "アイテム名", "reason": "おすすめ理由"}
 }
+
+【重要】
+- ingredients（材料）には、必ず「分量（目安）」を併記してください。
+- 分量は、一般的な単位（g、個、本、大さじ等）で具体的に提案してください。
 """
     retry_context = ""
     if retry_type:
@@ -116,8 +120,9 @@ def render_candidate_card(candidate: Dict[str, Any], idx: int):
         if candidate.get("dish_type"): st.caption(candidate.get("dish_type"))
         st.write(f"**おすすめ理由**：{candidate.get('reason', '')}")
         with st.expander("🍳 材料と作り方を見る"):
-            st.markdown("**🛒 材料**")
+            st.markdown("**🛒 材料（分量の目安）**")
             for item in candidate.get("ingredients", []): st.write(f"- {item}")
+            st.write("")
             st.markdown("**👩‍🍳 作り方の手順**")
             for i, step in enumerate(candidate.get("steps", []), 1): st.write(f"{i}. {step}")
         st.info(f"✨ ポチコの推しポイント：{candidate.get('tip', '')}")
@@ -147,10 +152,7 @@ def main():
     st.title("🍳 夜ごはんサポート")
     st.write("今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
-    # 1. 使いたい食材 (旧形式に戻す)
     ingredients = st.text_input("使いたい食材・家にあるもの *", placeholder="例：大根、ひき肉、豆腐")
-    
-    # 2. 苦手なもの
     exclude_ingredients = st.text_input("入れないもの（苦手なもの）", placeholder="例：ピーマン、トマト")
     
     col1, col2 = st.columns(2)
@@ -160,7 +162,7 @@ def main():
     st.write("**条件（あてはまるものを選んでください）**")
     c1, c2, c3 = st.columns(3)
     with c1:
-        cond_less_ingredients = st.checkbox("この材料だけで作る") # 位置変更・名前変更
+        cond_less_ingredients = st.checkbox("この材料だけで作る")
         cond_one_pan = st.checkbox("ワンパンでできる")
     with c2:
         cond_less_wash = st.checkbox("洗い物少なめ")
@@ -172,11 +174,8 @@ def main():
     conditions = [l for l, c in zip(["この材料だけで作る", "ワンパンでできる", "洗い物少なめ", "幼児向き", "パーティー・おもてなし向き", "子どもと一緒に作れる"], [cond_less_ingredients, cond_one_pan, cond_less_wash, cond_kid, cond_party, cond_with_kids]) if c]
     taste_level = st.radio("味の濃さ *", ["薄味", "普通", "濃い目"], index=1, horizontal=True)
     spicy = st.toggle("辛い料理もOK", value=False)
-    
-    # 3. 自由記述 (旧形式に戻す)
     constraints = st.text_input("補足（任意）", placeholder="例：ちくわも消費したい")
 
-    # フォームを使わず直接ボタンを置くことで「Press Enter...」を消す
     if st.button("この条件でポチコに聞く", type="primary", use_container_width=True):
         if not ingredients.strip():
             st.warning("使いたい食材を入力してください。")
@@ -209,7 +208,6 @@ def main():
             if st.button("完全に別の案にする"): run_retry("完全に別の案にする")
 
         st.write("---")
-        # 感想マークの再表示
         if st.session_state.user_feedback is None:
             f1, f2, f3 = st.columns(3)
             with f1:
