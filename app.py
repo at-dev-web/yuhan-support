@@ -145,7 +145,14 @@ def render_result(result: Dict[str, Any]):
             st.caption("※ポチコおすすめの商品ページ（外部サイト）へ移動します。移動前にレシピのスクショをおすすめします。")
             c1, c2 = st.columns(2)
             with c1: st.link_button("Amazonでチェック", f"https://www.amazon.co.jp/s?k={query}", use_container_width=True)
-            with c2: st.link_button("楽天でチェック", f"https://search.rakuten.co.jp/search/mall/{query}/", use_container_width=True)
+            with c2:
+    rakuten_id = os.environ.get("RAKUTEN_AFFILIATE_ID", "")
+    if rakuten_id:
+        query = quote_plus(item_name)
+        rakuten_url = f"https://hb.afl.rakuten.co.jp/hgc/{rakuten_id}/?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F{query}%2F&link_type=hybrid_url"
+        st.link_button("楽天でチェック", rakuten_url, use_container_width=True)
+    else:
+        st.caption("※楽天リンクは現在準備中です")
 
 def main():
     init_session_state()
