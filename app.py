@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import json
 import os
+import re
 from urllib.parse import quote_plus
 from typing import Optional, Dict, Any
 
@@ -29,15 +30,10 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 st.markdown(
     """
     <style>
-    /* 1. 「Press Enter to submit form」を強制非表示 */
     small { display: none !important; }
     div[data-testid="stMarkdownContainer"] p { font-size: 1rem; }
-
-    /* 2. スマホでタイトルや料理名が2行にならないようサイズ調整 */
     h1 { font-size: clamp(1.5rem, 5vw, 2.2rem) !important; line-height: 1.2 !important; }
     h3 { font-size: clamp(1.2rem, 4vw, 1.8rem) !important; line-height: 1.2 !important; }
-
-    /* 3. 成功メッセージ内のタイトルも小さく */
     .stSuccess h3 { font-size: 1.1rem !important; }
     </style>
     """,
@@ -58,6 +54,11 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 現実的で作りやすく、おいしい夕食候補を3品提案してください。
 「お子さん」という言葉を使い、やさしく寄り添うトーンで。
 
+【超重要】出力は必ず有効なJSON形式のみで返してください。
+説明文や前置きは一切不要です。
+最初の1文字は `{`、最後の1文字は `}` にしてください。
+Markdownの ```json フェンスは不要です。
+
 # 厳守ルール（全献立共通・最重要）
 1. 【食材厳守】ユーザーが指定した食材は、必ず3品中【すべて】に使うこと
    - 1品でも指定食材が入っていない献立はNG
@@ -73,7 +74,7 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 # JSON出力形式（厳密・必須）
 {
   "meal_title": "ポチコのおすすめ候補",
-  "summary": "今回の3候補の全体説明（指定食材の活用ポイントも触れる）",
+  "summary": "今回の3候補の全体説明",
   "candidates": [
     {
       "menu_name": "料理名",
@@ -105,7 +106,6 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 - 材料リストにはユーザーが指定した食材以外は記載しないこと
 """
 
-    # 入力食材リストを明示的に使うよう指示
     ingredients_check = f"""
 # 食材使用チェックリスト
 指定食材: {inputs['ingredients']}
@@ -130,31 +130,67 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 """
     return system_instruction + "\n" + prompt
 
-def call_ai(prompt: str) -> Optional[str]:
-    """キャッシュなしで毎回実行 + Temperature 指定で多様性UP"""
+def call_ai(prompt: str, retry_count: int = 0) -> Optional[str]:
+    """キャッシュなし + Temperature 0.7 + 自動リトライ"""
     model = get_genai_model()
     if model is None:
         return None
     try:
         from google.generativeai.types import GenerationConfig
         config = GenerationConfig(
-            temperature=1.0,         # 多様性重視
-            top_p=0.95,             # 上位95%から選択（安定性も確保）
-            top_k=40,               # 上位40トークンから選択
-            max_output_tokens=2048, # 十分な長さ
+            temperature=0.7,
+            top_p=0.9,
+            top_k=40,
+            max_output_tokens=2048,
         )
         response = model.generate_content(prompt, generation_config=config)
-        return response.text if hasattr(response, "text") else None
+        if response and hasattr(response, "text") and response.text:
+            return response.text
+        return None
     except Exception:
+        if retry_count < 1:
+            return call_ai(prompt, retry_count + 1)
         return None
 
 def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
-    if not response_text: return None
+    """複数のパターンに対応する堅牢な JSON 抽出"""
+    if not response_text:
+        return None
+
+    text = response_text.strip()
+
+    # パターン1: ```json ブロック
+    json_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if json_block_match:
+        try:
+            result = json.loads(json_block_match.group(1))
+            if isinstance(result, dict) and ("candidates" in result or "menu" in result or "menus" in result):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+    # パターン2: 文字列内の { から最後の }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            result = json.loads(text[start:end+1])
+            if isinstance(result, dict) and ("candidates" in result or "menu" in result or "menus" in result):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+    # パターン3: candidates 部分だけ抽出
     try:
-        start = response_text.find("{")
-        end = response_text.rfind("}") + 1
-        return json.loads(response_text[start:end])
-    except: return None
+        candidates_match = re.search(r'"candidates"\s*:\s*(\[.*?\])\s*[,\}]', text, re.DOTALL)
+        if candidates_match:
+            candidates = json.loads(candidates_match.group(1))
+            if isinstance(candidates, list):
+                return {"meal_title": "ポチコのおすすめ候補", "summary": "今夜の3つの献立です", "candidates": candidates, "ad_suggestion": {}}
+    except (json.JSONDecodeError, AttributeError):
+        pass
+
+    return None
 
 def run_retry(retry_label: str):
     if not st.session_state.last_inputs: return
@@ -167,7 +203,6 @@ def run_retry(retry_label: str):
                 st.session_state.user_feedback = None
                 st.rerun()
 
-# キーワード辞書（新設）
 def get_item_keyword(item_name: str) -> str:
     keywords = {
         "お肉": "解凍プレート+肉",
