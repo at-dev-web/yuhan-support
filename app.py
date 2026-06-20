@@ -6,7 +6,6 @@ from urllib.parse import quote_plus
 from typing import Optional, Dict, Any
 
 # Secrets から安全な読み込み
-GENAI_AVAILABLE = None  # 初期化フラグ
 RAKUTEN_AFFILIATE_ID = os.environ.get("RAKUTEN_AFFILIATE_ID", "")
 
 def get_genai_model():
@@ -16,7 +15,7 @@ def get_genai_model():
         return None
     try:
         genai.configure(api_key=api_key)
-        return genai.GenerativeModel("gemini-2.5-flash")  # ★ 修正点：正しいモデル名
+        return genai.GenerativeModel("gemini-2.5-flash")
     except Exception:
         return None
 
@@ -59,44 +58,61 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 現実的で作りやすく、おいしい夕食候補を3品提案してください。
 「お子さん」という言葉を使い、やさしく寄り添うトーンで。
 
-必ず以下のJSON形式でのみ回答してください：
+# 厳守ルール（全献立共通・最重要）
+1. 【食材厳守】ユーザーが指定した食材は、必ず3品中【すべて】に使うこと
+   - 1品でも指定食材が入っていない献立はNG
+   - 食材名は日本語で正確に（例：「しめじ」「ほうれん草」「きゅうり」）
+2. 【多様性ルール】3品は互いに違う特徴にすること
+   - ❌ 同じ調理法3つ（炒める・炒める・炒める）
+   - ❌ 同じ主食材3つ（ツナ・ツナ・ツナ）
+   - ✅ 調理法：「炒める」「和える」「スープ」「焼く」「煮る」「揚げる」から3つ選ぶ
+   - ✅ 主食材：鶏・豚・牛・卵・魚・豆腐をそれぞれ違う献立で主役にする
+3. 【分量厳守】ingredientsリストには必ず分量（目安）を併記
+   - 例：「しめじ 1株」「ほうれん草 1/2束」「鶏もも肉 200g」
+
+# JSON出力形式（厳密・必須）
 {
   "meal_title": "ポチコのおすすめ候補",
-  "summary": "今回の3候補の全体説明",
+  "summary": "今回の3候補の全体説明（指定食材の活用ポイントも触れる）",
   "candidates": [
     {
       "menu_name": "料理名",
       "dish_type": "主菜または副菜",
       "reason": "提案理由",
-      "ingredients": ["ひき肉 200g", "大根 1/4本"],
+      "ingredients": ["材料名 分量", "材料名 分量"],
       "steps": ["手順1", "手順2"],
       "tip": "ポチコの推しポイント"
     }
   ],
   "ad_suggestion": {"title": "アイテム名", "reason": "おすすめ理由"}
 }
-
-【重要】
-- ingredients（材料）には、必ず「分量（目安）」を併記してください。
-- 分量は、一般的な単位（g、個、本、大さじ等）で具体的に提案してください。
 """
     retry_context = ""
     if retry_type:
-        retry_context = f"\n【再提案条件】{retry_type}を重視して、内容をガラッと変えてください。"
+        retry_context = f"\n【再提案条件】{retry_type}を重視して、内容をガラッと変えてください。前回と被らない献立にすること。"
 
     conditions_text = "、".join(inputs["conditions"]) if inputs["conditions"] else "なし"
     spicy_rule = "辛い料理も提案可能です。" if inputs["spicy"] else "辛い料理は提案しないでください。"
 
-    # ★ この材料だけで作る場合の強い制約を追加
     only_ingredients_constraint = ""
     if "この材料だけで作る" in inputs["conditions"]:
         only_ingredients_constraint = f"""
-【重要・厳守ルール】「この材料だけで作る」が選択されました。
+【厳守】「この材料だけで作る」が選ばれました。
 - 使いたい食材「{inputs['ingredients']}」だけで完結するレシピにすること
 - 上記以外の食材(野菜・肉・魚・調味料)を一切追加しないこと
 - 足りない分は「水少量・塩ひとつまみ」など、家庭に常備されている調味料のみ可
-- 新しく食材を買い足す提案は禁止
+- 新しく食材を買い足す提案は絶対禁止
 - 材料リストにはユーザーが指定した食材以外は記載しないこと
+"""
+
+    # 入力食材リストを明示的に使うよう指示
+    ingredients_check = f"""
+# 食材使用チェックリスト
+指定食材: {inputs['ingredients']}
+→ 3品すべてに、指定食材のうち少なくとも1つ以上を含めること。
+→ 1品目: 主菜で指定食材を使う
+→ 2品目: 副菜で指定食材を使う（主菜と違う調理法）
+→ 3品目: スープ・和え物など、別の調理法で指定食材を使う
 """
 
     prompt = f"""
@@ -110,16 +126,24 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 - 補足: {inputs['constraints']}
 - 辛さ: {spicy_rule}
 {only_ingredients_constraint}
+{ingredients_check}
 """
     return system_instruction + "\n" + prompt
 
 def call_ai(prompt: str) -> Optional[str]:
-    """キャッシュなしで毎回実行"""
+    """キャッシュなしで毎回実行 + Temperature 指定で多様性UP"""
     model = get_genai_model()
     if model is None:
         return None
     try:
-        response = model.generate_content(prompt)
+        from google.generativeai.types import GenerationConfig
+        config = GenerationConfig(
+            temperature=1.0,         # 多様性重視
+            top_p=0.95,             # 上位95%から選択（安定性も確保）
+            top_k=40,               # 上位40トークンから選択
+            max_output_tokens=2048, # 十分な長さ
+        )
+        response = model.generate_content(prompt, generation_config=config)
         return response.text if hasattr(response, "text") else None
     except Exception:
         return None
@@ -143,7 +167,7 @@ def run_retry(retry_label: str):
                 st.session_state.user_feedback = None
                 st.rerun()
 
-# ★ キーワード辞書（新設）
+# キーワード辞書（新設）
 def get_item_keyword(item_name: str) -> str:
     keywords = {
         "お肉": "解凍プレート+肉",
@@ -201,7 +225,6 @@ def render_result(result: Dict[str, Any]):
     ad = result.get("ad_suggestion")
     if isinstance(ad, dict) and ad.get("title"):
         item_name = ad.get("title", "")
-        # ★ キーワード辞書で楽天検索キーワードを調整
         search_keyword = get_item_keyword(item_name)
         query = quote_plus(search_keyword)
 
@@ -215,7 +238,6 @@ def render_result(result: Dict[str, Any]):
             with col1:
                 st.link_button("Amazonでチェック", f"https://www.amazon.co.jp/s?k={query}", use_container_width=True)
             with col2:
-                # ★ 楽天IDが設定されていれば affiliate URL を使う
                 if RAKUTEN_AFFILIATE_ID:
                     rakuten_url = (
                         f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/"
