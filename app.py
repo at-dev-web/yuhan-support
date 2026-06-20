@@ -4,7 +4,7 @@ import json
 import os
 import re
 from urllib.parse import quote_plus
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # Secrets から安全な読み込み
 RAKUTEN_AFFILIATE_ID = os.environ.get("RAKUTEN_AFFILIATE_ID", "")
@@ -54,39 +54,39 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 現実的で作りやすく、おいしい夕食候補を3品提案してください。
 「お子さん」という言葉を使い、やさしく寄り添うトーンで。
 
-【超重要】出力は必ず有効なJSON形式のみで返してください。
-説明文や前置きは一切不要です。
-最初の1文字は `{`、最後の1文字は `}` にしてください。
-Markdownの ```json フェンスは不要です。
+# 提案ルール（★厳守）
+1. **必ず3つのすべての献立に、指定された食材を「全員」主材料または副材料として含めてください。**
+   - メニュー1・メニュー2・メニュー3の**すべて**にユーザーが指定した食材を入れること。
+   - 1品でも指定食材が入っていない献立は絶対に禁止です。
+2. **3つの献立の「調理アプローチ」を完全にバラバラにしてください。**
+   - 炒め物、レンジ蒸し、和え物、スープ・煮物、焼き物など、異なる調理法に分散させること。
+   - 味付けも醤油・マヨ・ごま油・コンソメ・味噌など分散させること。
+   - ❌ 「ツナ＋電子レンジ」が3品に固まるような、似たり寄ったりの提案は禁止。
+3. **たんぱく質素材を分散させること**（鶏・豚・牛・卵・魚・豆腐をそれぞれ違う献立で主役にする）
+4. 日本語で出力し、子ども連れママ向けにわかりやすく。
+5. 各献立には分量付き材料リスト、簡単な手順を必須とします。
 
-# 厳守ルール（全献立共通・最重要）
-1. 【食材厳守】ユーザーが指定した食材は、必ず3品中【すべて】に使うこと
-   - 1品でも指定食材が入っていない献立はNG
-   - 食材名は日本語で正確に（例：「しめじ」「ほうれん草」「きゅうり」）
-2. 【多様性ルール】3品は互いに違う特徴にすること
-   - ❌ 同じ調理法3つ（炒める・炒める・炒める）
-   - ❌ 同じ主食材3つ（ツナ・ツナ・ツナ）
-   - ✅ 調理法：「炒める」「和える」「スープ」「焼く」「煮る」「揚げる」から3つ選ぶ
-   - ✅ 主食材：鶏・豚・牛・卵・魚・豆腐をそれぞれ違う献立で主役にする
-3. 【分量厳守】ingredientsリストには必ず分量（目安）を併記
-   - 例：「しめじ 1株」「ほうれん草 1/2束」「鶏もも肉 200g」
-
-# JSON出力形式（厳密・必須）
+# 出力（厳密なJSON・必須・唯一の出力形式）
 {
   "meal_title": "ポチコのおすすめ候補",
   "summary": "今回の3候補の全体説明",
   "candidates": [
     {
       "menu_name": "料理名",
-      "dish_type": "主菜または副菜",
+      "dish_type": "主菜",
       "reason": "提案理由",
-      "ingredients": ["材料名 分量", "材料名 分量"],
-      "steps": ["手順1", "手順2"],
-      "tip": "ポチコの推しポイント"
+      "ingredients": [
+        {"name": "材料名", "amount": "分量（例：200g, 1/2個, 大さじ2）"}
+      ],
+      "steps": ["手順1", "手順2", "手順3"]
     }
   ],
   "ad_suggestion": {"title": "アイテム名", "reason": "おすすめ理由"}
 }
+
+【超重要】上記JSON以外の出力は絶対にしないでください。
+前置きや説明文は不要。最初の1文字は「{」、最後の1文字は「}」にしてください。
+Markdownの ```json 〜 ``` フェンスは不要です。
 """
     retry_context = ""
     if retry_type:
@@ -106,18 +106,14 @@ Markdownの ```json フェンスは不要です。
 - 材料リストにはユーザーが指定した食材以外は記載しないこと
 """
 
-    ingredients_check = f"""
-# 食材使用チェックリスト
-指定食材: {inputs['ingredients']}
-→ 3品すべてに、指定食材のうち少なくとも1つ以上を含めること。
-→ 1品目: 主菜で指定食材を使う
-→ 2品目: 副菜で指定食材を使う（主菜と違う調理法）
-→ 3品目: スープ・和え物など、別の調理法で指定食材を使う
-"""
-
     prompt = f"""
 今夜の献立を3品提案して。{retry_context}
-- 使いたい食材: {inputs['ingredients']}
+
+# 必ず使う食材
+{inputs['ingredients']}
+→ 3品すべてに、上記食材を必ず含めてください。
+→ 1品でも入っていない献立は禁止です。
+
 - 苦手なもの: {inputs['exclude_ingredients']}
 - 時間: {inputs['cook_time']}
 - 種類: {inputs['dish_type']}
@@ -126,7 +122,6 @@ Markdownの ```json フェンスは不要です。
 - 補足: {inputs['constraints']}
 - 辛さ: {spicy_rule}
 {only_ingredients_constraint}
-{ingredients_check}
 """
     return system_instruction + "\n" + prompt
 
@@ -152,6 +147,46 @@ def call_ai(prompt: str, retry_count: int = 0) -> Optional[str]:
             return call_ai(prompt, retry_count + 1)
         return None
 
+def _normalize_candidate(m: Dict[str, Any]) -> Dict[str, Any]:
+    """1つの献立データを UI 表示形式に正規化"""
+    raw_ings = m.get("ingredients", [])
+    norm_ings = []
+    for x in raw_ings:
+        if isinstance(x, dict):
+            name = x.get("name", "")
+            amount = x.get("amount", "")
+            if amount:
+                norm_ings.append(f"{name} {amount}")
+            else:
+                norm_ings.append(name)
+        elif isinstance(x, str):
+            norm_ings.append(x)
+    return {
+        "menu_name": m.get("menu_name") or m.get("name") or "",
+        "dish_type": m.get("dish_type") or "",
+        "reason": m.get("reason") or m.get("appeal") or "",
+        "ingredients": norm_ings,
+        "steps": m.get("steps", []),
+        "tip": m.get("tip") or "",
+    }
+
+def _normalize_result(result: Any) -> Optional[Dict[str, Any]]:
+    """API の返り値を UI 形式に統一"""
+    if not isinstance(result, dict):
+        return None
+    raw_list = result.get("candidates") or result.get("menus") or result.get("menu")
+    if not isinstance(raw_list, list) or len(raw_list) == 0:
+        return None
+    norm = [_normalize_candidate(m) for m in raw_list if isinstance(m, dict)]
+    return {
+        "meal_title": result.get("meal_title", "ポチコのおすすめ候補"),
+        "summary": result.get("summary", ""),
+        "candidates": norm,
+        "ad_suggestion": result.get("ad_suggestion", {})
+        if isinstance(result.get("ad_suggestion"), dict)
+        else {},
+    }
+
 def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
     """複数のパターンに対応する堅牢な JSON 抽出"""
     if not response_text:
@@ -163,9 +198,9 @@ def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
     json_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if json_block_match:
         try:
-            result = json.loads(json_block_match.group(1))
-            if isinstance(result, dict) and ("candidates" in result or "menu" in result or "menus" in result):
-                return result
+            normalized = _normalize_result(json.loads(json_block_match.group(1)))
+            if normalized:
+                return normalized
         except json.JSONDecodeError:
             pass
 
@@ -174,19 +209,19 @@ def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
     end = text.rfind("}")
     if start != -1 and end > start:
         try:
-            result = json.loads(text[start:end+1])
-            if isinstance(result, dict) and ("candidates" in result or "menu" in result or "menus" in result):
-                return result
+            normalized = _normalize_result(json.loads(text[start:end+1]))
+            if normalized:
+                return normalized
         except json.JSONDecodeError:
             pass
 
-    # パターン3: candidates 部分だけ抽出
+    # パターン3: greeting + menus形式のゆるい抽出
     try:
-        candidates_match = re.search(r'"candidates"\s*:\s*(\[.*?\])\s*[,\}]', text, re.DOTALL)
-        if candidates_match:
-            candidates = json.loads(candidates_match.group(1))
-            if isinstance(candidates, list):
-                return {"meal_title": "ポチコのおすすめ候補", "summary": "今夜の3つの献立です", "candidates": candidates, "ad_suggestion": {}}
+        menus_match = re.search(r'"menus"\s*:\s*(\[.*?\])\s*[,\}]', text, re.DOTALL)
+        if menus_match:
+            menus = json.loads(menus_match.group(1))
+            if isinstance(menus, list) and menus:
+                return _normalize_result({"menus": menus})
     except (json.JSONDecodeError, AttributeError):
         pass
 
