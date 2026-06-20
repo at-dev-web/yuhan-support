@@ -14,18 +14,15 @@ st.set_page_config(page_title="平日夜ごはんサポート", page_icon="🍳"
 st.markdown("""
 <style>
 @media (max-width: 768px) {
-    /* メインタイトル（「🍳 平日夜ごはんサポート」） */
     h1 {
-        font-size: 1.4rem !important;
+        font-size: 1.7rem !important;
         margin-top: 0.5rem !important;
     }
-    /* 献立タイトル（「 🍴 献立1：XXX」） */
     h3 {
-        font-size: 1.1rem !important;
+        font-size: 1.25rem !important;
     }
-    /* 説明文・入力欄 */
     p, label, .stMarkdown {
-        font-size: 0.95rem !important;
+        font-size: 1rem !important;
     }
 }
 </style>
