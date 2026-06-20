@@ -10,6 +10,27 @@ from urllib.parse import quote_plus
 # ページ設定
 st.set_page_config(page_title="平日夜ごはんサポート", page_icon="🍳")
 
+# --- スマホ画面用の文字サイズ調整 ---
+st.markdown("""
+<style>
+@media (max-width: 768px) {
+    /* メインタイトル（「🍳 平日夜ごはんサポート」） */
+    h1 {
+        font-size: 1.4rem !important;
+        margin-top: 0.5rem !important;
+    }
+    /* 献立タイトル（「 🍴 献立1：XXX」） */
+    h3 {
+        font-size: 1.1rem !important;
+    }
+    /* 説明文・入力欄 */
+    p, label, .stMarkdown {
+        font-size: 0.95rem !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Secrets から読み込み
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 RAKUTEN_AFFILIATE_ID = os.environ.get("RAKUTEN_AFFILIATE_ID", "")
