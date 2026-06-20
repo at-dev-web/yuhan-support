@@ -475,8 +475,8 @@ def render_results(results: Dict[str, Any]):
 # ============================================================
 def main():
     # タイトル
-    st.title(APP_TITLE if 'APP_TITLE' in dir() else "🍳 平日夜ごはんサポート")
-    st.write(APP_DESCRIPTION)
+    st.title("🍳 平日夜ごはんサポート")
+    st.write("ポチポチ選ぶだけ。今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
     # 入力フォーム
     with st.form("main_form", clear_on_submit=False):
