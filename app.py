@@ -136,7 +136,7 @@ def call_ai(prompt: str, retry_count: int = 0) -> Optional[str]:
             temperature=0.3,
             top_p=0.9,
             top_k=40,
-            max_output_tokens=2048,
+            max_output_tokens=4096,
             response_mime_type="application/json", 
         )
         response = model.generate_content(prompt, generation_config=config)
