@@ -19,91 +19,19 @@ def normalize_ingredients(text: str) -> str:
     if not text:
         return ""
     text = text.strip()
+    # 全角記号 → 半角
     text = text.replace("、", ",").replace("，", ",").replace("　", " ")
+    # 区切り記号を全部スペースに統一
     text = re.sub(r"[、，,;；]+", " ", text)
+    # 連続スペースを1つに
     text = re.sub(r"\s+", " ", text)
+    # スペースで分割 → strip → カンマ+スペースで結合
     parts = [p.strip() for p in text.split(" ") if p.strip()]
     return ", ".join(parts)
 
 
-def clean_generated_text(text: str, ingredient_csv: str = "") -> str:
-    """
-    生成テキストから不要な敬称・プレースホルダーを取り除く
-    """
-    if not isinstance(text, str):
-        return text
-    cleaned = text
-    # プレースホルダー
-    cleaned = cleaned.replace("〇〇", "この食材")
-    cleaned = cleaned.replace("◯◯", "この食材")
-    cleaned = cleaned.replace("XXX", "")
-    cleaned = cleaned.replace("xx", "")
-    # 食材名敬称Cleanup（食材リストに一致した場合のみ）
-    ingredients = [x.strip() for x in ingredient_csv.split(",") if x.strip()]
-    for ing in ingredients:
-        cleaned = cleaned.replace(f"{ing}さん", ing)
-        cleaned = cleaned.replace(f"{ing}ちゃん", ing)
-    # 全角丸記号で囲まれたプレースホルダー
-    cleaned = re.sub(r"『[〇◯]+』", "この食材", cleaned)
-    cleaned = re.sub(r"「[〇◯]+」", "この食材", cleaned)
-    cleaned = re.sub(r"[〇◯]{2,}", "この食材", cleaned)
-    # 「食材名さん」「食材名ちゃん」など CSV を越えて一般的に付く敬称も一応ケア
-    common_suffixes = [
-        "さん", "ちゃん", "くん", "様",
-    ]
-    # ruffus じゃなく、食材リスト以外の言葉には触らないが、明らかに変な「◯◯さん」等はここで救済
-    cleaned = re.sub(r"[〇◯]+さん", "この食材", cleaned)
-    cleaned = re.sub(r"[〇◯]+ちゃん", "この食材", cleaned)
-    # 連続スペース整理
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    _ = common_suffixes  # noqa
-    return cleaned
-
-
-def sanitize_result(result: Dict[str, Any], ingredient_csv: str) -> Dict[str, Any]:
-    """
-    AI が返した結果を画面に出す前に整える
-    """
-    if not isinstance(result, dict):
-        return result
-    if "meal_title" in result:
-        result["meal_title"] = clean_generated_text(
-            result.get("meal_title", ""), ingredient_csv
-        )
-    if "summary" in result:
-        result["summary"] = clean_generated_text(
-            result.get("summary", ""), ingredient_csv
-        )
-    candidates = result.get("candidates", [])
-    if isinstance(candidates, list):
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
-                continue
-            for key in ["menu_name", "dish_type", "reason", "tip"]:
-                if key in candidate:
-                    candidate[key] = clean_generated_text(
-                        candidate.get(key, ""), ingredient_csv
-                    )
-            if isinstance(candidate.get("ingredients"), list):
-                candidate["ingredients"] = [
-                    clean_generated_text(item, ingredient_csv)
-                    for item in candidate["ingredients"]
-                ]
-            if isinstance(candidate.get("steps"), list):
-                candidate["steps"] = [
-                    clean_generated_text(step, ingredient_csv)
-                    for step in candidate["steps"]
-                ]
-    if isinstance(result.get("ad_suggestion"), dict):
-        ad = result["ad_suggestion"]
-        ad["title"] = clean_generated_text(ad.get("title", ""), ingredient_csv)
-        ad["reason"] = clean_generated_text(ad.get("reason", ""), ingredient_csv)
-    return result
-
-
 # CSS
-st.markdown(
-    """
+st.markdown("""
 <style>
 small{display:none!important}
 div[data-testid="stMarkdownContainer"] p{font-size:1rem}
@@ -111,9 +39,7 @@ h1{font-size:clamp(1.5rem,5vw,2.2rem)!important;line-height:1.2!important}
 h3{font-size:clamp(1.2rem,4vw,1.8rem)!important;line-height:1.2!important}
 .stSuccess h3{font-size:1.1rem!important}
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 
 def init_session_state():
@@ -161,13 +87,6 @@ def build_prompt(inputs, retry_type=None):
 【重要】
 - ingredients（材料）には、必ず「分量（目安）」を併記してください。
 - 分量は一般的な単位（g、個、本、大さじ等）で具体的に。
-
-【文章ルール】
-- summary は2文以内で、自然な日本語にしてください。
-- 食材名に「さん」「ちゃん」などの敬称を付けないでください（例: 「ほうれん草さん」は禁止）。
-- 「〇〇」「◯◯」「XXX」などのプレースホルダーを出力しないでください。
-- 変な記号や記号だけの残骸、意味不明な擬人化表現を出さないでください。
-- 「〜な夜に」「忙しい日の味方」など、読める自然な日本語にしてください。
 """
     retry_context = ""
     if retry_type:
@@ -231,9 +150,6 @@ def run_retry(retry_label: str):
         if response:
             result = parse_ai_response(response)
             if result:
-                result = sanitize_result(
-                    result, st.session_state.last_inputs["ingredients"]
-                )
                 st.session_state.latest_result = result
                 st.session_state.user_feedback = None
                 st.rerun()
@@ -321,6 +237,7 @@ def main():
     st.title("🍳 夜ごはんサポート")
     st.write("今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
+    # ★ 食材入力欄（スペースでもカンマでも OK な案内文付き）
     raw_ingredients = st.text_input(
         "使いたい食材・家にあるもの *",
         placeholder="例：大根、ひき肉、豆腐  （スペースでも , でもOK）",
@@ -335,9 +252,11 @@ def main():
         key="exclude_raw",
     )
 
+    # ★ 入力値を自動整形
     normalized_ingredients = normalize_ingredients(raw_ingredients)
     normalized_exclude = normalize_ingredients(raw_exclude)
 
+    # 整形後の確認表示
     if raw_ingredients and normalized_ingredients != raw_ingredients:
         st.caption(f"✅ 認識された食材: `{normalized_ingredients}`")
 
@@ -389,9 +308,6 @@ def main():
                     if resp:
                         result = parse_ai_response(resp)
                         if result:
-                            result = sanitize_result(
-                                result, normalized_ingredients
-                            )
                             st.session_state.latest_result = result
                         else:
                             st.error("提案の読み取りに失敗しました。もう一度試してみてね。")
