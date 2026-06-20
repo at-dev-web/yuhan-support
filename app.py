@@ -2,48 +2,45 @@ import streamlit as st
 import google.generativeai as genai
 import json
 import os
+import re
 from urllib.parse import quote_plus
-from typing import Optional, Dict, Any
-
-# Secrets から安全な読み込み
-GENAI_AVAILABLE = None  # 初期化フラグ
-RAKUTEN_AFFILIATE_ID = os.environ.get("RAKUTEN_AFFILIATE_ID", "")
-
-def get_genai_model():
-    """毎回モデルを取得（キャッシュしない）"""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return None
-    try:
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel("gemini-2.5-flash")  # ★ 修正点：正しいモデル名
-    except Exception:
-        return None
+from typing import Optional, Dict, Any, List
 
 # ページ設定
 st.set_page_config(page_title="平日夜ごはんサポート", page_icon="🍳")
 
-# --- セキュリティ設定 ---
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# Secrets から読み込み
+RAKUTEN_AFFILIATE_ID = os.environ.get("RAKUTEN_AFFILIATE_ID", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# --- CSSで見た目を一気に調整 ---
-st.markdown(
-    """
-    <style>
-    /* 1. 「Press Enter to submit form」を強制非表示 */
-    small { display: none !important; }
-    div[data-testid="stMarkdownContainer"] p { font-size: 1rem; }
 
-    /* 2. スマホでタイトルや料理名が2行にならないようサイズ調整 */
-    h1 { font-size: clamp(1.5rem, 5vw, 2.2rem) !important; line-height: 1.2 !important; }
-    h3 { font-size: clamp(1.2rem, 4vw, 1.8rem) !important; line-height: 1.2 !important; }
+def normalize_ingredients(text: str) -> str:
+    """食材入力を自動整形：スペース・読点も全部カンマ区切りに揃える"""
+    if not text:
+        return ""
+    text = text.strip()
+    # 全角記号 → 半角
+    text = text.replace("、", ",").replace("，", ",").replace("　", " ")
+    # 区切り記号を全部スペースに統一
+    text = re.sub(r"[、，,;；]+", " ", text)
+    # 連続スペースを1つに
+    text = re.sub(r"\s+", " ", text)
+    # スペースで分割 → strip → カンマ+スペースで結合
+    parts = [p.strip() for p in text.split(" ") if p.strip()]
+    return ", ".join(parts)
 
-    /* 3. 成功メッセージ内のタイトルも小さく */
-    .stSuccess h3 { font-size: 1.1rem !important; }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+
+# CSS
+st.markdown("""
+<style>
+small{display:none!important}
+div[data-testid="stMarkdownContainer"] p{font-size:1rem}
+h1{font-size:clamp(1.5rem,5vw,2.2rem)!important;line-height:1.2!important}
+h3{font-size:clamp(1.2rem,4vw,1.8rem)!important;line-height:1.2!important}
+.stSuccess h3{font-size:1.1rem!important}
+</style>
+""", unsafe_allow_html=True)
+
 
 def init_session_state():
     if "latest_result" not in st.session_state:
@@ -53,11 +50,22 @@ def init_session_state():
     if "user_feedback" not in st.session_state:
         st.session_state.user_feedback = None
 
-def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> str:
+
+def get_genai_model():
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        return genai.GenerativeModel("gemini-2.5-flash")
+    except Exception:
+        return None
+
+
+def build_prompt(inputs, retry_type=None):
     system_instruction = """
 あなたは「ポチコ」という名前の献立アドバイザーです。
 現実的で作りやすく、おいしい夕食候補を3品提案してください。
-「お子さん」という言葉を使い、やさしく寄り添うトーンで。
+やさしいトーンで、寄り添うような言葉遣いをしてください。
 
 必ず以下のJSON形式でのみ回答してください：
 {
@@ -78,7 +86,7 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 
 【重要】
 - ingredients（材料）には、必ず「分量（目安）」を併記してください。
-- 分量は、一般的な単位（g、個、本、大さじ等）で具体的に提案してください。
+- 分量は一般的な単位（g、個、本、大さじ等）で具体的に。
 """
     retry_context = ""
     if retry_type:
@@ -87,16 +95,14 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
     conditions_text = "、".join(inputs["conditions"]) if inputs["conditions"] else "なし"
     spicy_rule = "辛い料理も提案可能です。" if inputs["spicy"] else "辛い料理は提案しないでください。"
 
-    # ★ この材料だけで作る場合の強い制約を追加
     only_ingredients_constraint = ""
     if "この材料だけで作る" in inputs["conditions"]:
         only_ingredients_constraint = f"""
 【重要・厳守ルール】「この材料だけで作る」が選択されました。
 - 使いたい食材「{inputs['ingredients']}」だけで完結するレシピにすること
-- 上記以外の食材(野菜・肉・魚・調味料)を一切追加しないこと
+- 上記以外の食材（野菜・肉・魚・調味料）を一切追加しないこと
 - 足りない分は「水少量・塩ひとつまみ」など、家庭に常備されている調味料のみ可
 - 新しく食材を買い足す提案は禁止
-- 材料リストにはユーザーが指定した食材以外は記載しないこと
 """
 
     prompt = f"""
@@ -113,8 +119,8 @@ def build_prompt(inputs: Dict[str, Any], retry_type: Optional[str] = None) -> st
 """
     return system_instruction + "\n" + prompt
 
+
 def call_ai(prompt: str) -> Optional[str]:
-    """キャッシュなしで毎回実行"""
     model = get_genai_model()
     if model is None:
         return None
@@ -124,17 +130,22 @@ def call_ai(prompt: str) -> Optional[str]:
     except Exception:
         return None
 
+
 def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
-    if not response_text: return None
+    if not response_text:
+        return None
     try:
         start = response_text.find("{")
         end = response_text.rfind("}") + 1
         return json.loads(response_text[start:end])
-    except: return None
+    except Exception:
+        return None
+
 
 def run_retry(retry_label: str):
-    if not st.session_state.last_inputs: return
-    with st.spinner(f"「{retry_label}」で考え直しています（30秒ほどかかる場合があります）..."):
+    if not st.session_state.last_inputs:
+        return
+    with st.spinner(f"「{retry_label}」で考え直しています..."):
         response = call_ai(build_prompt(st.session_state.last_inputs, retry_label))
         if response:
             result = parse_ai_response(response)
@@ -143,35 +154,26 @@ def run_retry(retry_label: str):
                 st.session_state.user_feedback = None
                 st.rerun()
 
-# ★ キーワード辞書（新設）
+
 def get_item_keyword(item_name: str) -> str:
     keywords = {
-        "お肉": "解凍プレート+肉",
-        "肉": "解凍プレート+肉",
-        "鶏": "解凍プレート+鶏肉",
-        "豚": "解凍プレート+豚肉",
-        "牛": "解凍プレート+牛肉",
-        "魚": "解凍プレート+魚",
-        "野菜": "キッチンばさみ+野菜",
-        "サラダ": "スライサー+野菜",
-        "カット": "スライサー+野菜",
-        "揚げ": "ノンフライヤー",
-        "フライ": "ノンフライヤー",
-        "天ぷら": "ノンフライヤー",
+        "お肉": "解凍プレート+肉", "肉": "解凍プレート+肉",
+        "鶏": "解凍プレート+鶏肉", "豚": "解凍プレート+豚肉",
+        "牛": "解凍プレート+牛肉", "魚": "解凍プレート+魚",
+        "野菜": "キッチンばさみ+野菜", "サラダ": "スライサー+野菜",
+        "カット": "スライサー+野菜", "揚げ": "ノンフライヤー",
+        "フライ": "ノンフライヤー", "天ぷら": "ノンフライヤー",
         "コロッケ": "ノンフライヤー",
         "ごぼう": "ごぼうの皮むき手袋",
         "にんじん": "スライサー+野菜",
         "大根": "スライサー+大根",
         "スープ": "電子レンジ対応容器+スープ",
-        "パスタ": "パスタ鍋",
-        "麺": "麺ボウル",
+        "パスタ": "パスタ鍋", "麺": "麺ボウル",
         "丼": "丼ぶり鉢",
         "オムライス": "卵ふわふわメーカー",
         "ハンバーグ": "ハンバーグ成形器",
-        "カレー": "圧力鍋",
-        "煮物": "圧力鍋",
-        "中華": "中華鍋",
-        "焼き": "耐熱フライパン",
+        "カレー": "圧力鍋", "煮物": "圧力鍋",
+        "中華": "中華鍋", "焼き": "耐熱フライパン",
         "蒸し": "電子レンジ対応蒸し器",
     }
     for key, kw in keywords.items():
@@ -179,18 +181,23 @@ def get_item_keyword(item_name: str) -> str:
             return kw
     return f"{item_name}+キッチン用品"
 
+
 def render_candidate_card(candidate: Dict[str, Any], idx: int):
     with st.container(border=True):
         st.markdown(f"### {idx}. {candidate.get('menu_name', '')}")
-        if candidate.get("dish_type"): st.caption(candidate.get("dish_type"))
+        if candidate.get("dish_type"):
+            st.caption(candidate.get("dish_type"))
         st.write(f"**おすすめ理由**：{candidate.get('reason', '')}")
         with st.expander("🍳 材料と作り方を見る"):
             st.markdown("**🛒 材料（分量の目安）**")
-            for item in candidate.get("ingredients", []): st.write(f"- {item}")
+            for item in candidate.get("ingredients", []):
+                st.write(f"- {item}")
             st.write("")
             st.markdown("**👩‍🍳 作り方の手順**")
-            for i, step in enumerate(candidate.get("steps", []), 1): st.write(f"{i}. {step}")
+            for i, step in enumerate(candidate.get("steps", []), 1):
+                st.write(f"{i}. {step}")
         st.info(f"✨ ポチコの推しポイント：{candidate.get('tip', '')}")
+
 
 def render_result(result: Dict[str, Any]):
     st.success(f"### {result.get('meal_title', 'ポチコのおすすめ候補')}")
@@ -201,21 +208,18 @@ def render_result(result: Dict[str, Any]):
     ad = result.get("ad_suggestion")
     if isinstance(ad, dict) and ad.get("title"):
         item_name = ad.get("title", "")
-        # ★ キーワード辞書で楽天検索キーワードを調整
         search_keyword = get_item_keyword(item_name)
         query = quote_plus(search_keyword)
-
         st.write("---")
         st.subheader("🛠 ポチコが見つけたお役立ちアイテム")
         with st.container(border=True):
             st.markdown(f"#### {item_name}")
             st.write(ad.get("reason", ""))
-            st.caption(f"💡 ジャンルに応じて最適なキッチングッズを検索")
+            st.caption("💡 ジャンルに応じて最適なキッチングッズを検索")
             col1, col2 = st.columns(2)
             with col1:
                 st.link_button("Amazonでチェック", f"https://www.amazon.co.jp/s?k={query}", use_container_width=True)
             with col2:
-                # ★ 楽天IDが設定されていれば affiliate URL を使う
                 if RAKUTEN_AFFILIATE_ID:
                     rakuten_url = (
                         f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/"
@@ -225,19 +229,42 @@ def render_result(result: Dict[str, Any]):
                     st.link_button("楽天でチェック", rakuten_url, use_container_width=True)
                 else:
                     st.link_button("楽天でチェック", f"https://search.rakuten.co.jp/search/mall/{query}/", use_container_width=True)
-        st.caption("※ポチコおすすめの商品ページ（外部サイト）へ移動します。移動前にレシピのスクショをおすすめします。")
+        st.caption("※ポチコおすすめの商品ページへ移動します。移動前にレシピのスクショをおすすめします。")
+
 
 def main():
     init_session_state()
     st.title("🍳 夜ごはんサポート")
     st.write("今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
-    ingredients = st.text_input("使いたい食材・家にあるもの *", placeholder="例：大根、ひき肉、豆腐")
-    exclude_ingredients = st.text_input("入れないもの（苦手なもの）", placeholder="例：ピーマン、トマト")
+    # ★ 食材入力欄（スペースでもカンマでも OK な案内文付き）
+    raw_ingredients = st.text_input(
+        "使いたい食材・家にあるもの *",
+        placeholder="例：大根、ひき肉、豆腐  （スペースでも , でもOK）",
+        value=st.session_state.get("ingredients_raw", ""),
+        key="ingredients_raw",
+    )
+
+    raw_exclude = st.text_input(
+        "入れないもの（苦手なもの）",
+        placeholder="例：ピーマン、トマト",
+        value=st.session_state.get("exclude_raw", ""),
+        key="exclude_raw",
+    )
+
+    # ★ 入力値を自動整形
+    normalized_ingredients = normalize_ingredients(raw_ingredients)
+    normalized_exclude = normalize_ingredients(raw_exclude)
+
+    # 整形後の確認表示
+    if raw_ingredients and normalized_ingredients != raw_ingredients:
+        st.caption(f"✅ 認識された食材: `{normalized_ingredients}`")
 
     col1, col2 = st.columns(2)
-    with col1: cook_time = st.radio("かけられる時間 *", ["5分", "10分", "15分", "20分"], index=1)
-    with col2: dish_type = st.radio("何を作りたいですか *", ["主菜", "副菜", "どちらでも"], index=0)
+    with col1:
+        cook_time = st.radio("かけられる時間 *", ["5分", "10分", "15分", "20分"], index=1)
+    with col2:
+        dish_type = st.radio("何を作りたいですか *", ["主菜", "副菜", "どちらでも"], index=0)
 
     st.write("**条件（あてはまるものを選んでください）**")
     c1, c2, c3 = st.columns(3)
@@ -251,24 +278,29 @@ def main():
         cond_party = st.checkbox("パーティー・おもてなし向き")
         cond_with_kids = st.checkbox("子どもと一緒に作れる")
 
-    conditions = [l for l, c in zip(["この材料だけで作る", "ワンパンでできる", "洗い物少なめ", "幼児向き", "パーティー・おもてなし向き", "子どもと一緒に作れる"], [cond_less_ingredients, cond_one_pan, cond_less_wash, cond_kid, cond_party, cond_with_kids]) if c]
+    conditions = [l for l, c in zip(
+        ["この材料だけで作る", "ワンパンでできる", "洗い物少なめ", "幼児向き", "パーティー・おもてなし向き", "子どもと一緒に作れる"],
+        [cond_less_ingredients, cond_one_pan, cond_less_wash, cond_kid, cond_party, cond_with_kids]
+    ) if c]
+
     taste_level = st.radio("味の濃さ *", ["薄味", "普通", "濃い目"], index=1, horizontal=True)
     spicy = st.toggle("辛い料理もOK", value=False)
     constraints = st.text_input("補足（任意）", placeholder="例：ちくわも消費したい")
 
     if st.button("この条件でポチコに聞く", type="primary", use_container_width=True):
-        if not ingredients.strip():
+        if not normalized_ingredients:
             st.warning("使いたい食材を入力してください。")
         else:
             st.session_state.latest_result = None
             st.session_state.user_feedback = None
             st.session_state.last_inputs = {
-                "ingredients": ingredients, "exclude_ingredients": exclude_ingredients,
+                "ingredients": normalized_ingredients,
+                "exclude_ingredients": normalized_exclude,
                 "cook_time": cook_time, "dish_type": dish_type,
                 "conditions": conditions, "taste_level": taste_level,
-                "spicy": spicy, "constraints": constraints
+                "spicy": spicy, "constraints": constraints,
             }
-            with st.spinner("ポチコが今夜の候補を考えています（30秒ほどかかる場合があります）..."):
+            with st.spinner("ポチコが今夜の候補を考えています..."):
                 if not GEMINI_API_KEY:
                     st.error("APIキーが設定されていません。Streamlit Cloud の Secrets を確認してください。")
                 else:
@@ -288,13 +320,17 @@ def main():
         st.write("イメージと違ったら、近いものを選んでください。")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            if st.button("もっと手抜きがいい"): run_retry("もっと手抜きがいい")
+            if st.button("もっと手抜きがいい"):
+                run_retry("もっと手抜きがいい")
         with c2:
-            if st.button("ちがう味付けがいい"): run_retry("ちがう味付けがいい")
+            if st.button("ちがう味付けがいい"):
+                run_retry("ちがう味付けがいい")
         with c3:
-            if st.button("調理法を変えたい"): run_retry("調理法を変えたい")
+            if st.button("調理法を変えたい"):
+                run_retry("調理法を変えたい")
         with c4:
-            if st.button("完全に別の案にする"): run_retry("完全に別の案にする")
+            if st.button("完全に別の案にする"):
+                run_retry("完全に別の案にする")
 
         st.write("---")
         if st.session_state.user_feedback is None:
@@ -311,11 +347,13 @@ def main():
                 if st.button("👋 今回は使わない"):
                     st.session_state.user_feedback = "Bad"
                     st.toast("ご意見ありがとうございます。")
-        else: st.caption("評価ありがとうございます！")
+        else:
+            st.caption("評価ありがとうございます！")
 
     st.write("---")
     st.caption("無料公開のため、画面上部に Streamlit の Fork ボタン等が表示されることがあります。")
     st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
+
 
 if __name__ == "__main__":
     main()
