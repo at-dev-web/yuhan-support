@@ -13,16 +13,27 @@ st.set_page_config(page_title="平日夜ごはんサポート", page_icon="🍳"
 # --- スマホ画面用の文字サイズ調整 ---
 st.markdown("""
 <style>
+h1 {
+    font-size: 1.5rem !important;
+    margin-top: 0.5rem !important;
+}
+h3 {
+    font-size: 1.15rem !important;
+}
+p, label, .stMarkdown {
+    font-size: 0.95rem !important;
+}
+
+/* スマホではほんの少しだけ小さく */
 @media (max-width: 768px) {
     h1 {
-        font-size: 1.7rem !important;
-        margin-top: 0.5rem !important;
+        font-size: 1.4rem !important;
     }
     h3 {
-        font-size: 1.25rem !important;
+        font-size: 1.1rem !important;
     }
     p, label, .stMarkdown {
-        font-size: 1rem !important;
+        font-size: 0.95rem !important;
     }
 }
 </style>
