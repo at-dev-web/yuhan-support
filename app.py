@@ -31,7 +31,7 @@ def init_session_state():
 
 init_session_state()
 
-# キーワード辞書（復活！）
+# キーワード辞書
 def get_item_keyword(item_name: str) -> str:
     keywords = {
         "お肉": "解凍プレート+肉",
@@ -95,7 +95,7 @@ def safe_json_loads(text: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
-# フィードバック保存
+# フィードバック保存（Streamlit Cloud では書き込みできない可能性が高いので try-except で囲む）
 LOG_FILE = "feedback_log.csv"
 
 def save_feedback(rating: str, meal_title: str, user_inputs: Dict[str, Any]):
@@ -124,11 +124,6 @@ st.title("🍳 平日夜ごはんサポート")
 st.write("ポチポチ選ぶだけ。今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
 st.markdown("### 🛒 食材の条件")
-col1, col2 = st.columns(2)
-with col1:
-    cond_only_ingredients = st.checkbox("この材料だけで作る", value=False, key="cond_only_ingredients")
-with col2:
-    cond_one_pan = st.checkbox("ワンパンでできる", value=True, key="cond_one_pan")
 
 ingredients = st.text_input(
     "使いたい食材・家にあるもの *",
@@ -140,6 +135,12 @@ exclude_ingredients = st.text_input(
     "入れないもの（苦手なもの）",
     placeholder="例：ピーマン、トマト",
     key="exclude_ingredients",
+)
+
+cond_only_ingredients = st.checkbox(
+    "この材料だけで作る（買い物なし）",
+    value=False,
+    key="cond_only_ingredients",
 )
 
 col_t1, col_t2 = st.columns(2)
@@ -159,7 +160,9 @@ with col_t2:
 st.markdown("**その他の条件**")
 c1, c2, c3 = st.columns(3)
 extra_conditions = []
+cond_one_pan = False
 with c1:
+    cond_one_pan = st.checkbox("ワンパン", value=False, key="cond_one_pan")
     cond_easy = st.checkbox("洗い物少なめ")
     cond_kid = st.checkbox("幼児向き")
 with c2:
@@ -170,7 +173,7 @@ with c3:
     cond_healthy = st.checkbox("健康に良さそう")
 
 for label, checked in [
-    ("洗い物少なめ", cond_easy), ("幼児向き", cond_kid),
+    ("ワンパン", cond_one_pan), ("洗い物少なめ", cond_easy), ("幼児向き", cond_kid),
     ("パーティー向き", cond_party), ("子どもと一緒に作れる", cond_with_kid),
     ("包丁いらず", cond_less_wash), ("健康に良さそう", cond_healthy),
 ]:
@@ -212,13 +215,14 @@ if generate_btn:
             user_constraints.append(f"【避けてほしい食材】{exclude_ingredients} は使わないこと")
         if extra_conditions:
             user_constraints.append(f"【追加条件】{', '.join(extra_conditions)}")
-        user_constraints.append(f"【調理時間】{cook_time}以内で完成すること")
-        user_constraints.append(f"【カテゴリ】{dish_type}を作る")
-        user_constraints.append(f"【味付け】{taste_level}")
+        if taste_level:
+            user_constraints.append(f"【味付け】{taste_level}")
         if spicy:
             user_constraints.append("辛い味付けもOK")
         if constraints.strip():
             user_constraints.append(f"【補足要望】{constraints}")
+        user_constraints.append(f"【調理時間】{cook_time}以内で完成すること")
+        user_constraints.append(f"【カテゴリ】{dish_type}を作る")
 
         constraints_text = "\n".join(user_constraints)
 
@@ -275,10 +279,7 @@ if generate_btn:
                 st.session_state.last_inputs = {
                     "ingredients": ingredients,
                     "exclude_ingredients": exclude_ingredients,
-                    "conditions": extra_conditions + [
-                        f"調理時間:{cook_time}", f"カテゴリ:{dish_type}",
-                        f"味付け:{taste_level}", f"辛さ:{'OK' if spicy else 'NG'}",
-                    ],
+                    "conditions": extra_conditions,
                     "constraints": constraints,
                 }
 
@@ -309,7 +310,6 @@ if generate_btn:
                             for j, step in enumerate(menu['steps'], 1):
                                 st.write(f"{j}. {step}")
 
-                        # お役立ちアイテム
                         menu_name = menu.get('name', '')
                         if menu_name:
                             st.markdown("---")
@@ -334,7 +334,7 @@ if generate_btn:
                     st.success(f"💡 {st.session_state.tips}")
                 st.caption("📸 移動前にレシピのスクショを撮るのをおすすめします")
 
-                # 再生成ボタン（復活）
+                # 再生成ボタン
                 st.markdown("---")
                 st.write("**イメージと違ったら、近いものを選んでください**")
                 c1, c2, c3, c4 = st.columns(4)
@@ -355,7 +355,7 @@ if generate_btn:
                         st.session_state.retry_request = "全く別の案にして"
                         st.rerun()
 
-                # フィードバック（復活）
+                # フィードバック
                 st.markdown("---")
                 meal_title = st.session_state.results[0].get("name", "") if st.session_state.results else ""
                 if not st.session_state.feedback_saved:
