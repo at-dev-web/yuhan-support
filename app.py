@@ -137,6 +137,7 @@ def call_ai(prompt: str, retry_count: int = 0) -> Optional[str]:
             top_p=0.9,
             top_k=40,
             max_output_tokens=2048,
+            response_mime_type="application/json", 
         )
         response = model.generate_content(prompt, generation_config=config)
         if response and hasattr(response, "text") and response.text:
