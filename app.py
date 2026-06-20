@@ -53,6 +53,8 @@ def init_session_state():
         "tips": "",
         "user_feedback": None,
         "feedback_saved": False,
+        "last_inputs": {},
+        "retry_request": None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -124,7 +126,7 @@ def safe_json_loads(text: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
-# フィードバック保存（Streamlit Cloud では書き込みできない可能性が高いので try-except で囲む）
+# フィードバック保存
 LOG_FILE = "feedback_log.csv"
 
 def save_feedback(rating: str, meal_title: str, user_inputs: Dict[str, Any]):
@@ -189,18 +191,19 @@ with col_t2:
 st.markdown("**その他の条件**")
 c1, c2, c3 = st.columns(3)
 extra_conditions = []
-cond_one_pan = False
+
 with c1:
     cond_one_pan = st.checkbox("ワンパン", value=False, key="cond_one_pan")
-    cond_easy = st.checkbox("洗い物少なめ")
-    cond_kid = st.checkbox("幼児向き")
+    cond_easy = st.checkbox("洗い物少なめ", value=False, key="cond_easy")
+    cond_kid = st.checkbox("幼児向き", value=False, key="cond_kid")
 with c2:
-    cond_party = st.checkbox("パーティー向き")
-    cond_with_kid = st.checkbox("子どもと一緒に作れる")
+    cond_party = st.checkbox("パーティー向き", value=False, key="cond_party")
+    cond_with_kid = st.checkbox("子どもと一緒に作れる", value=False, key="cond_with_kid")
 with c3:
-    cond_less_wash = st.checkbox("包丁いらず")
-    cond_healthy = st.checkbox("健康に良さそう")
+    cond_less_wash = st.checkbox("包丁いらず", value=False, key="cond_less_wash")
+    cond_healthy = st.checkbox("健康に良さそう", value=False, key="cond_healthy")
 
+# 条件リストの統合
 for label, checked in [
     ("ワンパン", cond_one_pan), ("洗い物少なめ", cond_easy), ("幼児向き", cond_kid),
     ("パーティー向き", cond_party), ("子どもと一緒に作れる", cond_with_kid),
@@ -224,7 +227,8 @@ constraints = st.text_input(
 
 generate_btn = st.button("🍽 この条件でAIに聞く", type="primary", use_container_width=True)
 
-if generate_btn:
+# 再生成リクエストまたは新規生成ボタンが押された場合の処理
+if generate_btn or st.session_state.retry_request:
     if not ingredients.strip():
         st.warning("使いたい食材を入力してください。")
     else:
@@ -250,6 +254,11 @@ if generate_btn:
             user_constraints.append("辛い味付けもOK")
         if constraints.strip():
             user_constraints.append(f"【補足要望】{constraints}")
+        
+        # もし再生成ボタンからの要望があればプロンプトに追加
+        if st.session_state.retry_request:
+            user_constraints.append(f"【重要：変更要望】前回の提案を踏まえ、次は「{st.session_state.retry_request}」という要望を満たす全く別の提案にしてください。")
+            
         user_constraints.append(f"【調理時間】{cook_time}以内で完成すること")
         user_constraints.append(f"【カテゴリ】{dish_type}を作る")
 
@@ -311,102 +320,6 @@ if generate_btn:
                     "conditions": extra_conditions,
                     "constraints": constraints,
                 }
-
-                if st.session_state.greeting:
-                    st.info(f"🐾 {st.session_state.greeting}")
-
-                for i, menu in enumerate(st.session_state.results, 1):
-                    with st.container(border=True):
-                        st.markdown(f"### 🍴 献立{i}：{menu.get('name', '名前未設定')}")
-
-                        if menu.get('time'):
-                            st.caption(f"⏱ {menu['time']}")
-                        if menu.get('appeal'):
-                            st.write(menu['appeal'])
-
-                        if menu.get('ingredients'):
-                            st.markdown("**📋 材料（目安）**")
-                            for ing in menu['ingredients']:
-                                name = ing.get('name', '')
-                                amount = ing.get('amount', '')
-                                if amount:
-                                    st.write(f"・{name} … {amount}")
-                                else:
-                                    st.write(f"・{name}")
-
-                        if menu.get('steps'):
-                            st.markdown("**👩‍🍳 手順**")
-                            for j, step in enumerate(menu['steps'], 1):
-                                st.write(f"{j}. {step}")
-
-                        menu_name = menu.get('name', '')
-                        if menu_name:
-                            st.markdown("---")
-                            st.markdown("**🔧 ポチコが見つけたお役立ちアイテム**")
-                            keyword = get_item_keyword(menu_name)
-                            try:
-                                query = quote_plus(keyword, safe='')
-                            except Exception:
-                                query = quote_plus(keyword)
-                            if RAKUTEN_AFFILIATE_ID:
-                                rakuten_url = (
-                                    f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/"
-                                    f"?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F{query}%2F"
-                                    f"&link_type=hybrid_url"
-                                )
-                            else:
-                                rakuten_url = f"https://search.rakuten.co.jp/search/mall/{query}/"
-                            st.link_button("🛒 楽天でチェック", rakuten_url, use_container_width=True)
-                            st.caption("※楽天市場の検索結果リンクです")
-
-                if st.session_state.tips:
-                    st.success(f"💡 {st.session_state.tips}")
-                st.caption("📸 移動前にレシピのスクショを撮るのをおすすめします")
-
-                # 再生成ボタン
-                st.markdown("---")
-                st.write("**イメージと違ったら、近いものを選んでください**")
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    if st.button("もっと手抜きがいい", key="retry_easy"):
-                        st.session_state.retry_request = "もっと手抜きにしたい"
-                        st.rerun()
-                with c2:
-                    if st.button("違う味付けがいい", key="retry_taste"):
-                        st.session_state.retry_request = "違う味付けにして"
-                        st.rerun()
-                with c3:
-                    if st.button("調理法を変えたい", key="retry_method"):
-                        st.session_state.retry_request = "調理法を変えて"
-                        st.rerun()
-                with c4:
-                    if st.button("完全に別の案にする", key="retry_other"):
-                        st.session_state.retry_request = "全く別の案にして"
-                        st.rerun()
-
-                # フィードバック
-                st.markdown("---")
-                meal_title = st.session_state.results[0].get("name", "") if st.session_state.results else ""
-                if not st.session_state.feedback_saved:
-                    f1, f2, f3 = st.columns(3)
-                    with f1:
-                        if st.button("👍 役に立った", key="feedback_good"):
-                            st.session_state.feedback_saved = True
-                            save_feedback("Good", meal_title, st.session_state.last_inputs)
-                            st.toast("ありがとうございます！")
-                    with f2:
-                        if st.button("🤔 もう少し", key="feedback_normal"):
-                            st.session_state.feedback_saved = True
-                            save_feedback("Normal", meal_title, st.session_state.last_inputs)
-                            st.toast("次に活かします。")
-                    with f3:
-                        if st.button("👋 今回は使わない", key="feedback_bad"):
-                            st.session_state.feedback_saved = True
-                            save_feedback("Bad", meal_title, st.session_state.last_inputs)
-                            st.toast("ご意見ありがとうございます。")
-                else:
-                    st.caption("評価ありがとうございました")
-
             else:
                 st.error("提案の読み取りに失敗しました。もう一度試してみてね。")
         else:
@@ -414,6 +327,109 @@ if generate_btn:
                 st.error("APIキーが設定されていません。Streamlit Cloud の Secrets を確認してください。")
             else:
                 st.error("ポチコとの通信がうまくいきませんでした。少し時間を置いてもう一度試してね。")
+        
+        # 再生成リクエストをリセット
+        st.session_state.retry_request = None
+
+# --- ここから「常に画面に結果を表示する」ための独立したブロック ---
+if st.session_state.results:
+    if st.session_state.greeting:
+        st.info(f"🐾 {st.session_state.greeting}")
+
+    for i, menu in enumerate(st.session_state.results, 1):
+        with st.container(border=True):
+            st.markdown(f"### 🍴 献立{i}：{menu.get('name', '名前未設定')}")
+
+            if menu.get('time'):
+                st.caption(f"⏱ {menu['time']}")
+            if menu.get('appeal'):
+                st.write(menu['appeal'])
+
+            if menu.get('ingredients'):
+                st.markdown("**📋 材料（目安）**")
+                for ing in menu['ingredients']:
+                    name = ing.get('name', '')
+                    amount = ing.get('amount', '')
+                    if amount:
+                        st.write(f"・{name} … {amount}")
+                    else:
+                        st.write(f"・{name}")
+
+            if menu.get('steps'):
+                st.markdown("**👩‍🍳 手順**")
+                for j, step in enumerate(menu['steps'], 1):
+                    st.write(f"{j}. {step}")
+
+            menu_name = menu.get('name', '')
+            if menu_name:
+                st.markdown("---")
+                st.markdown("**🔧 ポチコが見つけたお役立ちアイテム**")
+                keyword = get_item_keyword(menu_name)
+                try:
+                    query = quote_plus(keyword, safe='')
+                except Exception:
+                    query = quote_plus(keyword)
+                if RAKUTEN_AFFILIATE_ID:
+                    rakuten_url = (
+                        f"[https://hb.afl.rakuten.co.jp/hgc/](https://hb.afl.rakuten.co.jp/hgc/){RAKUTEN_AFFILIATE_ID}/"
+                        f"?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F{query}%2F"
+                        f"&link_type=hybrid_url"
+                    )
+                else:
+                    rakuten_url = f"[https://search.rakuten.co.jp/search/mall/](https://search.rakuten.co.jp/search/mall/){query}/"
+                st.link_button("🛒 楽天でチェック", rakuten_url, use_container_width=True)
+                st.caption("※楽天市場の検索結果リンクです")
+
+    if st.session_state.tips:
+        st.success(f"💡 {st.session_state.tips}")
+    st.caption("📸 移動前にレシピのスクショを撮るのをおすすめします")
+
+    # 再生成ボタン
+    st.markdown("---")
+    st.write("**イメージと違ったら、近いものを選んでください**")
+    rc1, rc2, rc3, rc4 = st.columns(4)
+    with rc1:
+        if st.button("もっと手抜きがいい", key="retry_easy"):
+            st.session_state.retry_request = "もっと手抜きにしたい"
+            st.rerun()
+    with rc2:
+        if st.button("違う味付けがいい", key="retry_taste"):
+            st.session_state.retry_request = "違う味付けにして"
+            st.rerun()
+    with rc3:
+        if st.button("調理法を変えたい", key="retry_method"):
+            st.session_state.retry_request = "調理法を変えて"
+            st.rerun()
+    with rc4:
+        if st.button("完全に別の案にする", key="retry_other"):
+            st.session_state.retry_request = "全く別の案にして"
+            st.rerun()
+
+    # フィードバック
+    st.markdown("---")
+    meal_title = st.session_state.results[0].get("name", "") if st.session_state.results else ""
+    if not st.session_state.feedback_saved:
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            if st.button("👍 役に立った", key="feedback_good"):
+                st.session_state.feedback_saved = True
+                save_feedback("Good", meal_title, st.session_state.last_inputs)
+                st.toast("ありがとうございます！")
+                st.rerun()
+        with f2:
+            if st.button("🤔 もう少し", key="feedback_normal"):
+                st.session_state.feedback_saved = True
+                save_feedback("Normal", meal_title, st.session_state.last_inputs)
+                st.toast("次に活かします。")
+                st.rerun()
+        with f3:
+            if st.button("👋 今回は使わない", key="feedback_bad"):
+                st.session_state.feedback_saved = True
+                save_feedback("Bad", meal_title, st.session_state.last_inputs)
+                st.toast("ご意見ありがとうございます。")
+                st.rerun()
+    else:
+        st.caption("評価ありがとうございました")
 
 # フッター・免責事項
 st.markdown("---")
