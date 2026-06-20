@@ -133,7 +133,7 @@ def call_ai(prompt: str, retry_count: int = 0) -> Optional[str]:
     try:
         from google.generativeai.types import GenerationConfig
         config = GenerationConfig(
-            temperature=0.7,
+            temperature=0.3,
             top_p=0.9,
             top_k=40,
             max_output_tokens=2048,
