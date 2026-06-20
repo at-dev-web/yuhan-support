@@ -19,19 +19,91 @@ def normalize_ingredients(text: str) -> str:
     if not text:
         return ""
     text = text.strip()
-    # 全角記号 → 半角
-    text = text.replace("、", ",").replace("，", ",").replace(" ", " ")
-    # 区切り記号を全部スペースに統一
+    text = text.replace("、", ",").replace("，", ",").replace("　", " ")
     text = re.sub(r"[、，,;；]+", " ", text)
-    # 連続スペースを1つに
     text = re.sub(r"\s+", " ", text)
-    # スペースで分割 → strip → カンマ+スペースで結合
     parts = [p.strip() for p in text.split(" ") if p.strip()]
     return ", ".join(parts)
 
 
+def clean_generated_text(text: str, ingredient_csv: str = "") -> str:
+    """
+    生成テキストから不要な敬称・プレースホルダーを取り除く
+    """
+    if not isinstance(text, str):
+        return text
+    cleaned = text
+    # プレースホルダー
+    cleaned = cleaned.replace("〇〇", "この食材")
+    cleaned = cleaned.replace("◯◯", "この食材")
+    cleaned = cleaned.replace("XXX", "")
+    cleaned = cleaned.replace("xx", "")
+    # 食材名敬称Cleanup（食材リストに一致した場合のみ）
+    ingredients = [x.strip() for x in ingredient_csv.split(",") if x.strip()]
+    for ing in ingredients:
+        cleaned = cleaned.replace(f"{ing}さん", ing)
+        cleaned = cleaned.replace(f"{ing}ちゃん", ing)
+    # 全角丸記号で囲まれたプレースホルダー
+    cleaned = re.sub(r"『[〇◯]+』", "この食材", cleaned)
+    cleaned = re.sub(r"「[〇◯]+」", "この食材", cleaned)
+    cleaned = re.sub(r"[〇◯]{2,}", "この食材", cleaned)
+    # 「食材名さん」「食材名ちゃん」など CSV を越えて一般的に付く敬称も一応ケア
+    common_suffixes = [
+        "さん", "ちゃん", "くん", "様",
+    ]
+    # ruffus じゃなく、食材リスト以外の言葉には触らないが、明らかに変な「◯◯さん」等はここで救済
+    cleaned = re.sub(r"[〇◯]+さん", "この食材", cleaned)
+    cleaned = re.sub(r"[〇◯]+ちゃん", "この食材", cleaned)
+    # 連続スペース整理
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    _ = common_suffixes  # noqa
+    return cleaned
+
+
+def sanitize_result(result: Dict[str, Any], ingredient_csv: str) -> Dict[str, Any]:
+    """
+    AI が返した結果を画面に出す前に整える
+    """
+    if not isinstance(result, dict):
+        return result
+    if "meal_title" in result:
+        result["meal_title"] = clean_generated_text(
+            result.get("meal_title", ""), ingredient_csv
+        )
+    if "summary" in result:
+        result["summary"] = clean_generated_text(
+            result.get("summary", ""), ingredient_csv
+        )
+    candidates = result.get("candidates", [])
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            for key in ["menu_name", "dish_type", "reason", "tip"]:
+                if key in candidate:
+                    candidate[key] = clean_generated_text(
+                        candidate.get(key, ""), ingredient_csv
+                    )
+            if isinstance(candidate.get("ingredients"), list):
+                candidate["ingredients"] = [
+                    clean_generated_text(item, ingredient_csv)
+                    for item in candidate["ingredients"]
+                ]
+            if isinstance(candidate.get("steps"), list):
+                candidate["steps"] = [
+                    clean_generated_text(step, ingredient_csv)
+                    for step in candidate["steps"]
+                ]
+    if isinstance(result.get("ad_suggestion"), dict):
+        ad = result["ad_suggestion"]
+        ad["title"] = clean_generated_text(ad.get("title", ""), ingredient_csv)
+        ad["reason"] = clean_generated_text(ad.get("reason", ""), ingredient_csv)
+    return result
+
+
 # CSS
-st.markdown("""
+st.markdown(
+    """
 <style>
 small{display:none!important}
 div[data-testid="stMarkdownContainer"] p{font-size:1rem}
@@ -39,7 +111,9 @@ h1{font-size:clamp(1.5rem,5vw,2.2rem)!important;line-height:1.2!important}
 h3{font-size:clamp(1.2rem,4vw,1.8rem)!important;line-height:1.2!important}
 .stSuccess h3{font-size:1.1rem!important}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 def init_session_state():
@@ -65,26 +139,39 @@ def build_prompt(inputs, retry_type=None):
     system_instruction = """
 あなたは「ポチコ」という名前の献立アドバイザーです。
 現実的で作りやすく、おいしい夕食候補を3品提案してください。
+やさしいトーンで、寄り添うような言葉遣いをしてください。
 
-# キャラクター・口調設定（★厳守）
-- ユーザー（ママやパパ）の心にやさしく寄り添い、ポジティブに励ますトーンで語りかけてください。
-- 必要に応じて「お子さん」という言葉を使って親しみやすさを出してください。
-- **【最重要】食材名に「さん」などの敬称を付けないでください（❌ ほうれん草さん、大根さん、お肉さん、ツナさんは禁止）。食材は「ほうれん草」「大根」「お肉」と普通に呼ぶこと。**
-- 「〜だよ」「〜してみてね」「ポチコのおすすめは〜」といった自然でやわらかいタメ口（丁寧なタメ口）で統一し、不自然な擬人化や過剰な赤ちゃん言葉は避けてください。
+必ず以下のJSON形式でのみ回答してください：
+{
+  "meal_title": "ポチコのおすすめ候補",
+  "summary": "今回の3候補の全体説明",
+  "candidates": [
+    {
+      "menu_name": "料理名",
+      "dish_type": "主菜または副菜",
+      "reason": "提案理由",
+      "ingredients": ["ひき肉 200g", "大根 1/4本"],
+      "steps": ["手順1", "手順2"],
+      "tip": "ポチコの推しポイント"
+    }
+  ],
+  "ad_suggestion": {"title": "アイテム名", "reason": "おすすめ理由"}
+}
 
-# 提案ルール（★厳守）
-1. **必ず3つのすべての献立に、指定された食材を主材料または副材料として「すべて」含めてください。**
-   - メニュー1・メニュー2・メニュー3のすべての献立に、指定食材を入れること。指定外の食材だけで構成された料理（例：きゅうりだけの副菜など）は絶対に禁止です。
-2. **3つの献立の「調理アプローチ」を完全にバラバラにしてください。**
-   - 炒め物、レンジ蒸し、和え物、スープ・汁物・煮物、焼き物など、異なる調理法に分散させること。
-   - 味付けも醤油・マヨ・ごま油・コンソメ・味噌・ポン酢など分散させること。
-   - ❌ 「ツナ＋電子レンジ」が3品に固まるような、似たり寄ったりの手抜き提案は禁止。
-3. **たんぱく質素材を分散させること**（鶏・豚・牛・卵・魚・豆腐をそれぞれ違う献立で主役にする）
-4. 各献立には分量付き材料リスト、簡単な手順を必須とします。
+【重要】
+- ingredients（材料）には、必ず「分量（目安）」を併記してください。
+- 分量は一般的な単位（g、個、本、大さじ等）で具体的に。
+
+【文章ルール】
+- summary は2文以内で、自然な日本語にしてください。
+- 食材名に「さん」「ちゃん」などの敬称を付けないでください（例: 「ほうれん草さん」は禁止）。
+- 「〇〇」「◯◯」「XXX」などのプレースホルダーを出力しないでください。
+- 変な記号や記号だけの残骸、意味不明な擬人化表現を出さないでください。
+- 「〜な夜に」「忙しい日の味方」など、読める自然な日本語にしてください。
 """
     retry_context = ""
     if retry_type:
-        retry_context = f"\n【再提案条件】{retry_type}を重視して、内容をガラッと変えてください。前回と被らない献立にすること。"
+        retry_context = f"\n【再提案条件】{retry_type}を重視して、内容をガラッと変えてください。"
 
     conditions_text = "、".join(inputs["conditions"]) if inputs["conditions"] else "なし"
     spicy_rule = "辛い料理も提案可能です。" if inputs["spicy"] else "辛い料理は提案しないでください。"
@@ -97,13 +184,11 @@ def build_prompt(inputs, retry_type=None):
 - 上記以外の食材（野菜・肉・魚・調味料）を一切追加しないこと
 - 足りない分は「水少量・塩ひとつまみ」など、家庭に常備されている調味料のみ可
 - 新しく食材を買い足す提案は禁止
-- 材料リストにはユーザーが指定した食材以外は記載しないこと
 """
 
     prompt = f"""
 今夜の献立を3品提案して。{retry_context}
 - 使いたい食材: {inputs['ingredients']}
-  → 3品すべての候補に、上記の食材を必ず含めてください。
 - 苦手なもの: {inputs['exclude_ingredients']}
 - 時間: {inputs['cook_time']}
 - 種類: {inputs['dish_type']}
@@ -121,54 +206,7 @@ def call_ai(prompt: str) -> Optional[str]:
     if model is None:
         return None
     try:
-        from google.generativeai.types import GenerationConfig
-        
-        # JSON出力を100%保証するスキーマ定義
-        response_schema = {
-            "type": "OBJECT",
-            "properties": {
-                "meal_title": {"type": "STRING"},
-                "summary": {"type": "STRING"},
-                "candidates": {
-                    "type": "ARRAY",
-                    "items": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "menu_name": {"type": "STRING"},
-                            "dish_type": {"type": "STRING"},
-                            "reason": {"type": "STRING"},
-                            "ingredients": {
-                                "type": "ARRAY",
-                                "items": {"type": "STRING"}
-                            },
-                            "steps": {
-                                "type": "ARRAY",
-                                "items": {"type": "STRING"}
-                            },
-                            "tip": {"type": "STRING"}
-                        },
-                        "required": ["menu_name", "dish_type", "reason", "ingredients", "steps", "tip"]
-                    }
-                },
-                "ad_suggestion": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "title": {"type": "STRING"},
-                        "reason": {"type": "STRING"}
-                    },
-                    "required": ["title", "reason"]
-                }
-            },
-            "required": ["meal_title", "summary", "candidates", "ad_suggestion"]
-        }
-
-        config = GenerationConfig(
-            temperature=0.3, # ブレを防ぐために低めに設定
-            max_output_tokens=2048,
-            response_mime_type="application/json",
-            response_schema=response_schema
-        )
-        response = model.generate_content(prompt, generation_config=config)
+        response = model.generate_content(prompt)
         return response.text if hasattr(response, "text") else None
     except Exception:
         return None
@@ -178,7 +216,9 @@ def parse_ai_response(response_text: str) -> Optional[Dict[str, Any]]:
     if not response_text:
         return None
     try:
-        return json.loads(response_text.strip())
+        start = response_text.find("{")
+        end = response_text.rfind("}") + 1
+        return json.loads(response_text[start:end])
     except Exception:
         return None
 
@@ -191,6 +231,9 @@ def run_retry(retry_label: str):
         if response:
             result = parse_ai_response(response)
             if result:
+                result = sanitize_result(
+                    result, st.session_state.last_inputs["ingredients"]
+                )
                 st.session_state.latest_result = result
                 st.session_state.user_feedback = None
                 st.rerun()
@@ -241,9 +284,8 @@ def render_candidate_card(candidate: Dict[str, Any], idx: int):
 
 
 def render_result(result: Dict[str, Any]):
-    st.success(f"### 🐾 {result.get('meal_title', 'ポチコのおすすめ候補')}")
+    st.success(f"### {result.get('meal_title', 'ポチコのおすすめ候補')}")
     st.write(result.get("summary", ""))
-    st.write("")
     for idx, candidate in enumerate(result.get("candidates", [])[:3], start=1):
         render_candidate_card(candidate, idx)
 
@@ -279,7 +321,6 @@ def main():
     st.title("🍳 夜ごはんサポート")
     st.write("今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
-    # 食材入力欄（スペースでもカンマでも OK な案内文付き）
     raw_ingredients = st.text_input(
         "使いたい食材・家にあるもの *",
         placeholder="例：大根、ひき肉、豆腐  （スペースでも , でもOK）",
@@ -294,11 +335,9 @@ def main():
         key="exclude_raw",
     )
 
-    # 入力値を自動整形
     normalized_ingredients = normalize_ingredients(raw_ingredients)
     normalized_exclude = normalize_ingredients(raw_exclude)
 
-    # 整形後の確認表示
     if raw_ingredients and normalized_ingredients != raw_ingredients:
         st.caption(f"✅ 認識された食材: `{normalized_ingredients}`")
 
@@ -350,6 +389,9 @@ def main():
                     if resp:
                         result = parse_ai_response(resp)
                         if result:
+                            result = sanitize_result(
+                                result, normalized_ingredients
+                            )
                             st.session_state.latest_result = result
                         else:
                             st.error("提案の読み取りに失敗しました。もう一度試してみてね。")
