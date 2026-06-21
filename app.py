@@ -105,7 +105,18 @@ def build_prompt(inputs, retry_type=None):
 - 新しく食材を買い足す提案は禁止
 """
 
-    prompt = f"""
+    # 「3品セット」選択時のみジャンル制約を追加
+genre_hint = ""
+if "3品" in inputs["dish_type"]:
+    genre_hint = """
+【ジャンル割当ルール（厳守）】
+- 必ず1品目 = 主菜、2品目 = 副菜、3品目 = スープ・汁物 にしてください。
+- 同じジャンル（例: 主菜2品や副菜2品）を並べるのは禁止です。
+- テーマ（和食 / 洋食 / 中華）は統一しても構いません。
+- 3品それぞれが明確に違う役割になるよう意識してください。
+"""
+
+prompt = f"""
 今夜の献立を3品提案して。{retry_context}
 - 使いたい食材: {inputs['ingredients']}
 - 苦手なもの: {inputs['exclude_ingredients']}
@@ -116,6 +127,7 @@ def build_prompt(inputs, retry_type=None):
 - 補足: {inputs['constraints']}
 - 辛さ: {spicy_rule}
 {only_ingredients_constraint}
+{genre_hint}
 """
     return system_instruction + "\n" + prompt
 
@@ -264,7 +276,11 @@ def main():
     with col1:
         cook_time = st.radio("かけられる時間 *", ["5分", "10分", "15分", "20分"], index=1)
     with col2:
-        dish_type = st.radio("何を作りたいですか *", ["主菜", "副菜", "どちらでも"], index=0)
+    dish_type = st.radio(
+        "何を作りたいですか *",
+        ["主菜", "副菜", "3品(主菜・副菜・スープのセット)"],
+        index=0
+    )
 
     st.write("**条件（あてはまるものを選んでください）**")
     c1, c2, c3 = st.columns(3)
@@ -273,7 +289,7 @@ def main():
         cond_one_pan = st.checkbox("ワンパンでできる")
     with c2:
         cond_less_wash = st.checkbox("洗い物少なめ")
-        cond_kid = st.checkbox("幼児向き")
+        cond_kid = st.checkbox("小さなお子さん向き")
     with c3:
         cond_party = st.checkbox("パーティー・おもてなし向き")
         cond_with_kids = st.checkbox("子どもと一緒に作れる")
@@ -350,9 +366,19 @@ def main():
         else:
             st.caption("評価ありがとうございます！")
 
-    st.write("---")
+        st.write("---")
+    # 既存
     st.caption("無料公開のため、画面上部に Streamlit の Fork ボタン等が表示されることがあります。")
+
+    # ★ 今回追加するポチコからのおことわり文
+    st.info(
+        "🐷 **ポチコはまだ修行中です**\n\n"
+        "・提案はAIによるものです。 材料を聞き忘れたり、手順にミスがあるかもしれません。\n"
+        "　そんなときは、もう一度聞いてみてね 🔁\n"
+        "・レシピを保存しておきたいときは、画面のスクショをおすすめします 📸"
+    )
     st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
+
 
 
 if __name__ == "__main__":
