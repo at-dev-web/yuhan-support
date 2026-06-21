@@ -250,7 +250,7 @@ def main():
 
     raw_ingredients = st.text_input(
         "使いたい食材・家にあるもの *",
-        placeholder="例：大根、ひき肉、豆腐  （スペースでも , でもOK）",
+        placeholder="例：人参、鶏もも肉、じゃがいも  （スペースでも , でもOK）",
         value=st.session_state.get("ingredients_raw", ""),
         key="ingredients_raw",
     )
