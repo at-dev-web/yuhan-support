@@ -19,19 +19,16 @@ def normalize_ingredients(text: str) -> str:
     if not text:
         return ""
     text = text.strip()
-    # 全角記号 → 半角
     text = text.replace("、", ",").replace("，", ",").replace("　", " ")
-    # 区切り記号を全部スペースに統一
     text = re.sub(r"[、，,;；]+", " ", text)
-    # 連続スペースを1つに
     text = re.sub(r"\s+", " ", text)
-    # スペースで分割 → strip → カンマ+スペースで結合
     parts = [p.strip() for p in text.split(" ") if p.strip()]
     return ", ".join(parts)
 
 
 # CSS
-st.markdown("""
+st.markdown(
+    """
 <style>
 small{display:none!important}
 div[data-testid="stMarkdownContainer"] p{font-size:1rem}
@@ -39,7 +36,9 @@ h1{font-size:clamp(1.5rem,5vw,2.2rem)!important;line-height:1.2!important}
 h3{font-size:clamp(1.2rem,4vw,1.8rem)!important;line-height:1.2!important}
 .stSuccess h3{font-size:1.1rem!important}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 def init_session_state():
@@ -105,10 +104,10 @@ def build_prompt(inputs, retry_type=None):
 - 新しく食材を買い足す提案は禁止
 """
 
-    # 「3品セット」選択時のみジャンル制約を追加
-genre_hint = ""
-if "3品" in inputs["dish_type"]:
-    genre_hint = """
+    # 「3品セット」選択時のみジャンル割当ルールを追加
+    genre_hint = ""
+    if "3品" in inputs["dish_type"]:
+        genre_hint = """
 【ジャンル割当ルール（厳守）】
 - 必ず1品目 = 主菜、2品目 = 副菜、3品目 = スープ・汁物 にしてください。
 - 同じジャンル（例: 主菜2品や副菜2品）を並べるのは禁止です。
@@ -116,7 +115,7 @@ if "3品" in inputs["dish_type"]:
 - 3品それぞれが明確に違う役割になるよう意識してください。
 """
 
-prompt = f"""
+    prompt = f"""
 今夜の献立を3品提案して。{retry_context}
 - 使いたい食材: {inputs['ingredients']}
 - 苦手なもの: {inputs['exclude_ingredients']}
@@ -249,7 +248,6 @@ def main():
     st.title("🍳 夜ごはんサポート")
     st.write("今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
-    # ★ 食材入力欄（スペースでもカンマでも OK な案内文付き）
     raw_ingredients = st.text_input(
         "使いたい食材・家にあるもの *",
         placeholder="例：大根、ひき肉、豆腐  （スペースでも , でもOK）",
@@ -264,11 +262,9 @@ def main():
         key="exclude_raw",
     )
 
-    # ★ 入力値を自動整形
     normalized_ingredients = normalize_ingredients(raw_ingredients)
     normalized_exclude = normalize_ingredients(raw_exclude)
 
-    # 整形後の確認表示
     if raw_ingredients and normalized_ingredients != raw_ingredients:
         st.caption(f"✅ 認識された食材: `{normalized_ingredients}`")
 
@@ -276,11 +272,11 @@ def main():
     with col1:
         cook_time = st.radio("かけられる時間 *", ["5分", "10分", "15分", "20分"], index=1)
     with col2:
-    dish_type = st.radio(
-        "何を作りたいですか *",
-        ["主菜", "副菜", "3品(主菜・副菜・スープのセット)"],
-        index=0
-    )
+        dish_type = st.radio(
+            "何を作りたいですか *",
+            ["主菜", "副菜", "3品(主菜・副菜・スープのセット)"],
+            index=0,
+        )
 
     st.write("**条件（あてはまるものを選んでください）**")
     c1, c2, c3 = st.columns(3)
@@ -294,10 +290,21 @@ def main():
         cond_party = st.checkbox("パーティー・おもてなし向き")
         cond_with_kids = st.checkbox("子どもと一緒に作れる")
 
-    conditions = [l for l, c in zip(
-        ["この材料だけで作る", "ワンパンでできる", "洗い物少なめ", "幼児向き", "パーティー・おもてなし向き", "子どもと一緒に作れる"],
-        [cond_less_ingredients, cond_one_pan, cond_less_wash, cond_kid, cond_party, cond_with_kids]
-    ) if c]
+    conditions = [
+        label
+        for label, checked in zip(
+            [
+                "この材料だけで作る", "ワンパンでできる", "洗い物少なめ",
+                "小さなお子さん向き", "パーティー・おもてなし向き",
+                "子どもと一緒に作れる",
+            ],
+            [
+                cond_less_ingredients, cond_one_pan, cond_less_wash,
+                cond_kid, cond_party, cond_with_kids,
+            ],
+        )
+        if checked
+    ]
 
     taste_level = st.radio("味の濃さ *", ["薄味", "普通", "濃い目"], index=1, horizontal=True)
     spicy = st.toggle("辛い料理もOK", value=False)
@@ -312,9 +319,12 @@ def main():
             st.session_state.last_inputs = {
                 "ingredients": normalized_ingredients,
                 "exclude_ingredients": normalized_exclude,
-                "cook_time": cook_time, "dish_type": dish_type,
-                "conditions": conditions, "taste_level": taste_level,
-                "spicy": spicy, "constraints": constraints,
+                "cook_time": cook_time,
+                "dish_type": dish_type,
+                "conditions": conditions,
+                "taste_level": taste_level,
+                "spicy": spicy,
+                "constraints": constraints,
             }
             with st.spinner("ポチコが今夜の候補を考えています..."):
                 if not GEMINI_API_KEY:
@@ -366,11 +376,10 @@ def main():
         else:
             st.caption("評価ありがとうございます！")
 
-        st.write("---")
-    # 既存
+    st.write("---")
     st.caption("無料公開のため、画面上部に Streamlit の Fork ボタン等が表示されることがあります。")
 
-    # ★ 今回追加するポチコからのおことわり文
+    # ★ ポチコからのおことわり文
     st.info(
         "🐷 **ポチコはまだ修行中です**\n\n"
         "・提案はAIによるものです。 材料を聞き忘れたり、手順にミスがあるかもしれません。\n"
@@ -378,7 +387,6 @@ def main():
         "・レシピを保存しておきたいときは、画面のスクショをおすすめします 📸"
     )
     st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
-
 
 
 if __name__ == "__main__":
