@@ -326,7 +326,7 @@ def main():
                 "spicy": spicy,
                 "constraints": constraints,
             }
-            with st.spinner("ポチコが今夜の候補を考えています..."):
+            with st.spinner("ポチコが今夜の候補を考えています...（30秒ほどかかることがあります）"):
                 if not GEMINI_API_KEY:
                     st.error("APIキーが設定されていません。Streamlit Cloud の Secrets を確認してください。")
                 else:
