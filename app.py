@@ -386,8 +386,9 @@ def main():
     )
 
     st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
-        # ★★★ この2行だけ、ご自身のURLに書き換えてください ★★★
-    <a href="https://hb.afl.rakuten.co.jp/hsc/552eea9d.348af05a.54e87a23.360f3ed3/?link_type=pict&ut=eyJwYWdlIjoic2hvcCIsInR5cGUiOiJwaWN0IiwiY29sIjoxLCJjYXQiOiIxMTAiLCJiYW4iOjE2MzczOTMsImFtcCI6ZmFsc2V9" target="_blank" rel="nofollow sponsored noopener" style="word-wrap:break-word;"><img src="https://hbb.afl.rakuten.co.jp/hsb/552eea9d.348af05a.54e87a23.360f3ed3/?me_id=1&me_adv_id=1637393&t=pict" border="0" style="margin:2px" alt="" title=""></a>
+            # ★★★ この2行だけ、ご自身のURLに書き換えてください ★★★
+    RAKUTEN_MAMA_BANNER_LINK_URL = "https://hb.afl.rakuten.co.jp/hsc/552eea9d.348af05a.54e87a23.360f3ed3/?link_type=pict&ut=eyJwYWdlIjoic2hvcCIsInR5cGUiOiJwaWN0IiwiY29sIjoxLCJjYXQiOiIxMTAiLCJiYW4iOjE2MzczOTMsImFtcCI6ZmFsc2V9"
+    RAKUTEN_MAMA_BANNER_IMAGE_URL = "https://hbb.afl.rakuten.co.jp/hsb/552eea9d.348af05a.54e87a23.360f3ed3/?me_id=1&me_adv_id=1637393&t=pict"
 
     st.write("---")
 
