@@ -227,21 +227,19 @@ def render_result(result: Dict[str, Any]):
             st.markdown(f"#### {item_name}")
             st.write(ad.get("reason", ""))
             st.caption("💡 ジャンルに応じて最適なキッチングッズを検索")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.link_button("Amazonでチェック", f"https://www.amazon.co.jp/s?k={query}", use_container_width=True)
-            with col2:
-                if RAKUTEN_AFFILIATE_ID:
-                    rakuten_url = (
-                        f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/"
-                        f"?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F{query}%2F"
-                        f"&link_type=hybrid_url"
-                    )
-                    st.link_button("楽天でチェック", rakuten_url, use_container_width=True)
-                else:
-                    st.link_button("楽天でチェック", f"https://search.rakuten.co.jp/search/mall/{query}/", use_container_width=True)
-        st.caption("※ポチコおすすめの商品ページへ移動します。移動前にレシピのスクショをおすすめします。")
+                    # ★ Amazonボタンはいったんなし。楽天商品ページへ直接遷移する
+        if RAKUTEN_AFFILIATE_ID:
+            rakuten_url = (
+                f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/"
+                f"?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F{query}%2F"
+                f"&link_type=hybrid_url"
+            )
+        else:
+            rakuten_url = f"https://search.rakuten.co.jp/search/mall/{query}/"
 
+        st.link_button("🛒 楽天市場で探す", rakuten_url, use_container_width=True)
+
+        st.caption("※ポチコおすすめの商品ページへ移動します。移動前にレシピのスクショをおすすめします。")
 
 def main():
     init_session_state()
@@ -386,8 +384,38 @@ def main():
         "そんなときは、もう一度聞いてみてね🔁\n"
         "・レシピを保存しておきたいときは、画面のスクショをおすすめします 📸"
     )
-    st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
 
+    st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
+        # ★★★ この2行だけ、ご自身のURLに書き換えてください ★★★
+    <a href="https://hb.afl.rakuten.co.jp/hsc/552eea9d.348af05a.54e87a23.360f3ed3/?link_type=pict&ut=eyJwYWdlIjoic2hvcCIsInR5cGUiOiJwaWN0IiwiY29sIjoxLCJjYXQiOiIxMTAiLCJiYW4iOjE2MzczOTMsImFtcCI6ZmFsc2V9" target="_blank" rel="nofollow sponsored noopener" style="word-wrap:break-word;"><img src="https://hbb.afl.rakuten.co.jp/hsb/552eea9d.348af05a.54e87a23.360f3ed3/?me_id=1&me_adv_id=1637393&t=pict" border="0" style="margin:2px" alt="" title=""></a>
+
+    st.write("---")
+
+    # ★ 楽天ママ割バナー
+    st.markdown("### 🌸 楽天ママ割")
+    st.write(
+        "ママ・パパのお買い物をもっとお得に。"
+        "楽天ママ割で賢く節約しましょう🌟"
+    )
+    
+    st.markdown(
+        f"""
+<a href="{RAKUTEN_MAMA_BANNER_LINK_URL}"
+   target="_blank"
+   rel="noopener noreferrer">
+<img src="{RAKUTEN_MAMA_BANNER_IMAGE_URL}"
+     width="468"
+     height="60"
+     alt="楽天ママ割"
+     style="max-width:100%; height:auto; border-radius:6px;">
+</a>
+""",
+        unsafe_allow_html=True,
+    )
+
+    st.caption(
+        "※上記バナーは楽天ママ割公式ページへリンクしています（新しいタブで開きます）。"
+    )
 
 if __name__ == "__main__":
     main()
