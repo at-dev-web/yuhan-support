@@ -5,6 +5,11 @@ import os
 import re
 from urllib.parse import quote_plus
 from typing import Optional, Dict, Any, List
+# ============================================
+# 🛍️ 楽天SPUバナー設定
+# ============================================
+RAKUTEN_SPU_LINK_URL = "https://hb.afl.rakuten.co.jp/hsc/5553751d.8ddfad89.54e87a23.360f3ed3/?link_type=pict&ut=eyJwYWdlIjoic2hvcCIsInR5cGUiOiJwaWN0IiwiY29sIjoxLCJjYXQiOiI0NCIsImJhbiI6Mjc5NDg1OCwiYW1wIjpmYWxzZX0%3D"
+RAKUTEN_SPU_IMAGE_URL = "https://hbb.afl.rakuten.co.jp/hsb/5553751d.8ddfad89.54e87a23.360f3ed3/?me_id=1&me_adv_id=2794858&t=pict"
 
 # ページ設定
 st.set_page_config(page_title="平日夜ごはんサポート", page_icon="🍳")
@@ -384,9 +389,75 @@ def main():
         "そんなときは、もう一度聞いてみてね🔁\n"
         "・レシピを保存しておきたいときは、画面のスクショをおすすめします 📸"
     )
+    # ============================================
+    # 📌 上部固定バナー（スクロールしても常に表示）
+    # ============================================
+    components.html(
+        f"""
+        <div id="rakuten-top-banner" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 9999;
+            background-color: #ffffff;
+            padding: 8px 16px;
+            border-bottom: 1px solid #e0e0e0;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            text-align: center;
+        ">
+            <a href="{RAKUTEN_SPU_LINK_URL}"
+               target="_blank"
+               rel="nofollow sponsored noopener"
+               style="text-decoration:none;">
+               <img src="{RAKUTEN_SPU_IMAGE_URL}"
+                    alt="楽天SPU"
+                    style="
+                        max-width: 468px;
+                        width: 100%;
+                        height: auto;
+                        display: inline-block;
+                        margin: 0 auto;
+                        border-radius: 4px;
+                    ">
+            </a>
+        </div>
+        <div style="height: 80px;"></div>  <!-- バナー分のスペース確保 -->
+        """,
+        height=0,  # 画面には描画しない（高さ0）
+    )
+
+    # ============================================
+    # 📢 楽天SPUバナー（「夜ごはんサポート」の真上）
+    # ============================================
+    st.markdown(
+        f"""
+        <div style="
+            text-align: center;
+            margin: 20px 0 10px 0;
+        ">
+            <a href="{RAKUTEN_SPU_LINK_URL}"
+               target="_blank"
+               rel="nofollow sponsored noopener"
+               style="text-decoration:none;">
+               <img src="{RAKUTEN_SPU_IMAGE_URL}"
+                    alt="楽天SPU"
+                    style="
+                        max-width: 468px;
+                        width: 100%;
+                        height: auto;
+                        display: inline-block;
+                        border-radius: 6px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    ">
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
-            # ★★★ この2行だけ、ご自身のURLに書き換えてください ★★★
+       # ★★★ この2行だけ、ご自身のURLに書き換えてください ★★★
     RAKUTEN_MAMA_BANNER_LINK_URL = "https://hb.afl.rakuten.co.jp/hsc/552eea9d.348af05a.54e87a23.360f3ed3/?link_type=pict&ut=eyJwYWdlIjoic2hvcCIsInR5cGUiOiJwaWN0IiwiY29sIjoxLCJjYXQiOiIxMTAiLCJiYW4iOjE2MzczOTMsImFtcCI6ZmFsc2V9"
     RAKUTEN_MAMA_BANNER_IMAGE_URL = "https://hbb.afl.rakuten.co.jp/hsb/552eea9d.348af05a.54e87a23.360f3ed3/?me_id=1&me_adv_id=1637393&t=pict"
 
@@ -417,6 +488,6 @@ def main():
     st.caption(
         "※上記バナーは楽天ママ割公式ページへリンクしています（新しいタブで開きます）。"
     )
-
+     
 if __name__ == "__main__":
     main()
