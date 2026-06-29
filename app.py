@@ -249,7 +249,7 @@ def render_result(result: Dict[str, Any]):
 
 def main():
     init_session_state()
-        st.markdown(
+    st.markdown(
         f"""
         <div style="
             text-align: center;
