@@ -249,6 +249,32 @@ def render_result(result: Dict[str, Any]):
 
 def main():
     init_session_state()
+        st.markdown(
+        f"""
+        <div style="
+            text-align: center;
+            margin: 20px 0 10px 0;
+        ">
+            <a href="{RAKUTEN_SPU_LINK_URL}"
+               target="_blank"
+               rel="nofollow sponsored noopener"
+               style="text-decoration:none;">
+               <img src="{RAKUTEN_SPU_IMAGE_URL}"
+                    alt="楽天SPU"
+                    style="
+                        max-width: 468px;
+                        width: 100%;
+                        height: auto;
+                        display: inline-block;
+                        border-radius: 6px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    ">
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.title("🍳 夜ごはんサポート")
     st.write("今夜のおかずにちょうどいい「3つの候補」をAI【ポチコ】が提案します。")
 
@@ -390,72 +416,9 @@ def main():
         "そんなときは、もう一度聞いてみてね🔁\n"
         "・レシピを保存しておきたいときは、画面のスクショをおすすめします 📸"
     )
-    # ============================================
-    # 📌 上部固定バナー（スクロールしても常に表示）
-    # ============================================
-    components.html(
-        f"""
-        <div id="rakuten-top-banner" style="
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 9999;
-            background-color: #ffffff;
-            padding: 8px 16px;
-            border-bottom: 1px solid #e0e0e0;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-            text-align: center;
-        ">
-            <a href="{RAKUTEN_SPU_LINK_URL}"
-               target="_blank"
-               rel="nofollow sponsored noopener"
-               style="text-decoration:none;">
-               <img src="{RAKUTEN_SPU_IMAGE_URL}"
-                    alt="楽天SPU"
-                    style="
-                        max-width: 468px;
-                        width: 100%;
-                        height: auto;
-                        display: inline-block;
-                        margin: 0 auto;
-                        border-radius: 4px;
-                    ">
-            </a>
-        </div>
-        <div style="height: 80px;"></div>  <!-- バナー分のスペース確保 -->
-        """,
-        height=0,  # 画面には描画しない（高さ0）
-    )
+   
 
-    # ============================================
-    # 📢 楽天SPUバナー（「夜ごはんサポート」の真上）
-    # ============================================
-    st.markdown(
-        f"""
-        <div style="
-            text-align: center;
-            margin: 20px 0 10px 0;
-        ">
-            <a href="{RAKUTEN_SPU_LINK_URL}"
-               target="_blank"
-               rel="nofollow sponsored noopener"
-               style="text-decoration:none;">
-               <img src="{RAKUTEN_SPU_IMAGE_URL}"
-                    alt="楽天SPU"
-                    style="
-                        max-width: 468px;
-                        width: 100%;
-                        height: auto;
-                        display: inline-block;
-                        border-radius: 6px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    ">
-            </a>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+   
 
     st.caption("【免責事項】AI生成案です。保護者の方が最終確認を行ってください。")
             # ★★★ この2行だけ、ご自身のURLに書き換えてください ★★★
