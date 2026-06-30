@@ -79,7 +79,7 @@ def build_prompt(inputs, retry_type=None):
   "candidates": [
     {
       "menu_name": "料理名",
-      "dish_type": "主菜または副菜",
+      "dish_type": "ユーザーが選んだジャンル（例: 副菜 / 主菜 / スープ）",
       "reason": "提案理由",
       "ingredients": ["ひき肉 200g", "大根 1/4本"],
       "steps": ["手順1", "手順2"],
@@ -110,15 +110,12 @@ def build_prompt(inputs, retry_type=None):
 - 新しく食材を買い足す提案は禁止
 """
 
-    # 「3品セット」選択時のみジャンル割当ルールを追加
-    genre_hint = ""
-    if "3品" in inputs["dish_type"]:
-        genre_hint = """
+       # ユーザーが選んだジャンルだけ出す
+    genre_hint = f"""
 【ジャンル割当ルール（厳守）】
-- 必ず1品目 = 主菜、2品目 = 副菜、3品目 = スープ・汁物 にしてください。
-- 同じジャンル（例: 主菜2品や副菜2品）を並べるのは禁止です。
-- テーマ（和食 / 洋食 / 中華）は統一しても構いません。
-- 3品それぞれが明確に違う役割になるよう意識してください。
+- 必ず「{inputs['dish_type']}」ジャンルのレシピだけを提案してください。
+- 「{inputs['dish_type']}」以外のジャンルは絶対に出さないでください。
+- 3品すべてが同じジャンルで構いません（例: 副菜を3品 など）。
 """
 
     prompt = f"""
@@ -126,7 +123,7 @@ def build_prompt(inputs, retry_type=None):
 - 使いたい食材: {inputs['ingredients']}
 - 苦手なもの: {inputs['exclude_ingredients']}
 - 時間: {inputs['cook_time']}
-- 種類: {inputs['dish_type']}
+- 種類: {inputs['dish_type']}  ← この種類以外のジャンルは出さないこと
 - 条件: {conditions_text}
 - 味: {inputs['taste_level']}
 - 補足: {inputs['constraints']}
