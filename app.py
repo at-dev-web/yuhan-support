@@ -216,9 +216,6 @@ def render_candidate_card(candidate: Dict[str, Any], idx: int):
 def render_result(result: Dict[str, Any]):
     st.success(f"### {result.get('meal_title', 'ポチコのおすすめ候補')}")
     st.write(result.get("summary", ""))
-    for idx, candidate in enumerate(result.get("candidates", [])[:3], start=1):
-        render_candidate_card(candidate, idx)
-
     ad = result.get("ad_suggestion")
     if isinstance(ad, dict) and ad.get("title"):
         item_name = ad.get("title", "")
@@ -243,6 +240,11 @@ def render_result(result: Dict[str, Any]):
         st.link_button("🛒 楽天市場で探す", rakuten_url, use_container_width=True)
 
         st.caption("※ポチコおすすめの商品ページへ移動します。移動前にレシピのスクショをおすすめします。")
+
+    for idx, candidate in enumerate(result.get("candidates", [])[:3], start=1):
+        render_candidate_card(candidate, idx)
+
+    
 
 def main():
     init_session_state()
@@ -353,7 +355,7 @@ def main():
                 "spicy": spicy,
                 "constraints": constraints,
             }
-            with st.spinner("ポチコが今夜の候補を考えています...（30秒ほどかかることがあります）"):
+            with st.spinner("ポチコが今夜の候補を考えています"):
                 if not GEMINI_API_KEY:
                     st.error("APIキーが設定されていません。Streamlit Cloud の Secrets を確認してください。")
                 else:
