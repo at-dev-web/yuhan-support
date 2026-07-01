@@ -61,7 +61,7 @@ def get_genai_model():
         return None
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        return genai.GenerativeModel("gemini-2.5-flash")
+        return genai.GenerativeModel("gemini-2.5-flash-lite")
     except Exception:
         return None
 
