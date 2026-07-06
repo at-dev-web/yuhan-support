@@ -242,39 +242,6 @@ def render_result(result: Dict[str, Any]):
         render_candidate_card(candidate, idx)
 
 
-def render_result(result: Dict[str, Any]):
-    st.success(f"### {result.get('meal_title', 'ポチコのおすすめ候補')}")
-    st.write(result.get("summary", ""))
-    ad = result.get("ad_suggestion")
-    if isinstance(ad, dict) and ad.get("title"):
-        item_name = ad.get("title", "")
-        search_keyword = get_item_keyword(item_name)
-        query = quote_plus(search_keyword)
-        st.write("---")
-        st.subheader("🛠 ポチコが見つけたお役立ちアイテム")
-        with st.container(border=True):
-            st.markdown(f"#### {item_name}")
-            st.write(ad.get("reason", ""))
-            st.caption("💡 ジャンルに応じて最適なキッチングッズを検索")
-                    # ★ Amazonボタンはいったんなし。楽天商品ページへ直接遷移する
-        if RAKUTEN_AFFILIATE_ID:
-            rakuten_url = (
-                f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/"
-                f"?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F{query}%2F"
-                f"&link_type=hybrid_url"
-            )
-        else:
-            rakuten_url = f"https://search.rakuten.co.jp/search/mall/{query}/"
-
-        st.link_button("🛒 楽天市場で探す", rakuten_url, use_container_width=True)
-
-        st.caption("※ポチコおすすめの商品ページへ移動します。移動前にレシピのスクショをおすすめします。")
-
-    for idx, candidate in enumerate(result.get("candidates", [])[:3], start=1):
-        render_candidate_card(candidate, idx)
-
-    
-
 def main():
     init_session_state()
     st.markdown(
