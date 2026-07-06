@@ -168,49 +168,78 @@ def run_retry(retry_label: str):
                 st.session_state.user_feedback = None
                 st.rerun()
 
-
-def get_item_keyword(item_name: str) -> str:
-    keywords = {
-        "お肉": "解凍プレート+肉", "肉": "解凍プレート+肉",
-        "鶏": "解凍プレート+鶏肉", "豚": "解凍プレート+豚肉",
-        "牛": "解凍プレート+牛肉", "魚": "解凍プレート+魚",
-        "野菜": "キッチンばさみ+野菜", "サラダ": "スライサー+野菜",
-        "カット": "スライサー+野菜", "揚げ": "ノンフライヤー",
-        "フライ": "ノンフライヤー", "天ぷら": "ノンフライヤー",
+def get_item_keyword(item_name: str) -> Dict[str, str]:
+    """食材名から、表示名と楽天検索キーワードを返す"""
+    mapping = {
+        "お肉": "解凍プレート",
+        "肉": "解凍プレート",
+        "鶏": "解凍プレート",
+        "豚": "解凍プレート",
+        "牛": "解凍プレート",
+        "魚": "解凍プレート",
+        "野菜": "キッチンばさみ",
+        "サラダ": "スライサー",
+        "カット": "スライサー",
+        "揚げ": "ノンフライヤー",
+        "フライ": "ノンフライヤー",
+        "天ぷら": "ノンフライヤー",
         "コロッケ": "ノンフライヤー",
         "ごぼう": "ごぼうの皮むき手袋",
-        "にんじん": "スライサー+野菜",
-        "大根": "スライサー+大根",
-        "スープ": "電子レンジ対応容器+スープ",
-        "パスタ": "パスタ鍋", "麺": "麺ボウル",
+        "にんじん": "スライサー",
+        "大根": "スライサー",
+        "スープ": "電子レンジ対応容器",
+        "パスタ": "パスタ鍋",
+        "麺": "麺ボウル",
         "丼": "丼ぶり鉢",
         "オムライス": "卵ふわふわメーカー",
         "ハンバーグ": "ハンバーグ成形器",
-        "カレー": "圧力鍋", "煮物": "圧力鍋",
-        "中華": "中華鍋", "焼き": "耐熱フライパン",
+        "カレー": "圧力鍋",
+        "煮物": "圧力鍋",
+        "中華": "中華鍋",
+        "焼き": "耐熱フライパン",
         "蒸し": "電子レンジ対応蒸し器",
     }
-    for key, kw in keywords.items():
+    for key, product in mapping.items():
         if key in item_name:
-            return kw
-    return f"{item_name}+キッチン用品"
+            return {"display_name": product, "keyword": product}
+    # 該当なしのときは食材名そのまま（例: 鶏むね肉 → 鶏むね肉）
+    return {"display_name": item_name, "keyword": item_name}
 
+def render_result(result: Dict[str, Any]):
+    st.success(f"### {result.get('meal_title', 'ポチコのおすすめ候補')}")
+    st.write(result.get("summary", ""))
 
-def render_candidate_card(candidate: Dict[str, Any], idx: int):
-    with st.container(border=True):
-        st.markdown(f"### {idx}. {candidate.get('menu_name', '')}")
-        if candidate.get("dish_type"):
-            st.caption(candidate.get("dish_type"))
-        st.write(f"**おすすめ理由**：{candidate.get('reason', '')}")
-        with st.expander("🍳 材料と作り方を見る"):
-            st.markdown("**🛒 材料（分量の目安）**")
-            for item in candidate.get("ingredients", []):
-                st.write(f"- {item}")
-            st.write("")
-            st.markdown("**👩🍳 作り方の手順**")
-            for i, step in enumerate(candidate.get("steps", []), 1):
-                st.write(f"{i}. {step}")
-        st.info(f"✨ ポチコの推しポイント：{candidate.get('tip', '')}")
+    # お役立ちアイテム（レシピの前）
+    ad = result.get("ad_suggestion")
+    if isinstance(ad, dict) and ad.get("title"):
+        item_name = ad.get("title", "")
+        mapping = get_item_keyword(item_name)
+        display_name = mapping["display_name"]
+        search_keyword = mapping["keyword"]
+        query = quote_plus(search_keyword)
+
+        st.write("---")
+        st.subheader("🛠 ポチコが見つけたお役立ちアイテム")
+        with st.container(border=True):
+            st.markdown(f"#### {display_name}")
+            st.write(ad.get("reason", ""))
+            st.caption("💡 ジャンルに応じて最適なキッチングッズを検索")
+
+        if RAKUTEN_AFFILIATE_ID:
+            rakuten_url = (
+                f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/"
+                f"?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F{query}%2F"
+                f"&link_type=hybrid_url"
+            )
+        else:
+            rakuten_url = f"https://search.rakuten.co.jp/search/mall/{query}/"
+
+        st.link_button("🛒 楽天市場で探す", rakuten_url, use_container_width=True)
+        st.caption("※ポチコおすすめの商品ページへ移動します。移動前にレシピのスクショをおすすめします。")
+
+    # レシピ3件
+    for idx, candidate in enumerate(result.get("candidates", [])[:3], start=1):
+        render_candidate_card(candidate, idx)
 
 
 def render_result(result: Dict[str, Any]):
