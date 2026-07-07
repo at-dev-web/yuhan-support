@@ -241,6 +241,21 @@ def render_result(result: Dict[str, Any]):
     for idx, candidate in enumerate(result.get("candidates", [])[:3], start=1):
         render_candidate_card(candidate, idx)
 
+def render_candidate_card(candidate: Dict[str, Any], idx: int):
+    with st.container(border=True):
+        st.markdown(f"### {idx}. {candidate.get('menu_name', '')}")
+        if candidate.get("dish_type"):
+            st.caption(candidate.get("dish_type"))
+        st.write(f"**おすすめ理由**：{candidate.get('reason', '')}")
+        with st.expander("🍳 材料と作り方を見る"):
+            st.markdown("**🛒 材料（分量の目安）**")
+            for item in candidate.get("ingredients", []):
+                st.write(f"- {item}")
+            st.write("")
+            st.markdown("**👩🍳 作り方の手順**")
+            for i, step in enumerate(candidate.get("steps", []), 1):
+                st.write(f"{i}. {step}")
+        st.info(f"✨ ポチコの推しポイント：{candidate.get('tip', '')}")
 
 def main():
     init_session_state()
